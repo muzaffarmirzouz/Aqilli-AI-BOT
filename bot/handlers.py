@@ -271,8 +271,13 @@ def chat_kb(cid: int):
     kb.button(text="📞 Bog'lanish", callback_data=f"cac:{cid}")
     kb.button(text="🖼 Reklama rasmi", callback_data=f"cai:{cid}")
     kb.button(text="🗑 Reklamani tozalash", callback_data=f"cax:{cid}")
+    ch = db.get_chat(cid)
+    on_w = bool(ch and ch["send_weather"])
+    on_r = bool(ch and ch["send_rates"])
+    kb.button(text=f"🌤 Ob-havo rasmi: {'✅ yoqilgan' if on_w else '❌ o‘chiq'}", callback_data=f"ctw:{cid}")
+    kb.button(text=f"💵 Kurs rasmi: {'✅ yoqilgan' if on_r else '❌ o‘chiq'}", callback_data=f"ctr:{cid}")
     kb.button(text="📤 Hozir kanalga sinov post", callback_data=f"cht:{cid}")
-    kb.adjust(2, 2, 2, 1)
+    kb.adjust(2, 2, 2, 1, 1, 1)
     return kb.as_markup()
 
 
@@ -280,7 +285,10 @@ def chat_summary(ch) -> str:
     th = THEMES.get(ch["theme"] or DEFAULT_THEME, THEMES[DEFAULT_THEME])["title"]
     contact = ch["ad_contact"] if ch["ad_contact"] is not None else AD_CONTACT
     ad = "rasm" if ch["ad_file"] else (ch["ad_text"] or "«Reklamangiz uchun joy»")
+    extra = [n for n, f in (("ob-havo", ch["send_weather"]), ("dollar kursi", ch["send_rates"])) if f]
+    daily = "namoz vaqtlari" + (" + " + " + ".join(extra) if extra else "")
     return (f"⚙️ <b>{ch['title']}</b>\n"
+            f"🕘 Har kuni {SEND_AT} da: {daily}\n"
             f"🎨 Rang: {th}\n📣 Reklama: {ad}\n📞 Bog'lanish: {contact or '—'}")
 
 
@@ -373,10 +381,10 @@ async def send_preview(bot: Bot, uid: int, cid: int):
     ch = db.get_chat(cid)
     d = today() + timedelta(days=1)
     data = await jobs.collect(ch["region"], d)
-    items = await jobs.album(ch["region"], d, data, await jobs.chat_style(bot, ch))
+    items = await jobs.album(ch["region"], d, data, await jobs.chat_style(bot, ch), **jobs.chat_flags(ch))
     if not items:
         return await bot.send_message(uid, "⚠️ Ertangi namoz vaqtlari topilmadi — rasm yasab bo'lmadi.")
-    await bot.send_media_group(uid, jobs._media(items, "👁 Kanalga har kuni shunday chiqadi."))
+    await jobs.send_items(bot, uid, items, "👁 Kanalga har kuni shunday chiqadi.")
     await bot.send_message(uid, chat_summary(ch), reply_markup=chat_kb(cid))
 
 
@@ -445,6 +453,24 @@ async def logo_clear(c: CallbackQuery, bot: Bot):
     db.set_chat(cid, logo_file=None)
     await c.answer("Logotip olib tashlandi")
     await send_preview(bot, c.from_user.id, cid)
+
+
+@router.callback_query(F.data.regexp(r"^(ctw|ctr):"))
+async def toggle_extra(c: CallbackQuery, bot: Bot):
+    cid = await _guard(c, bot)
+    if cid is None:
+        return
+    field = "send_weather" if c.data.startswith("ctw") else "send_rates"
+    ch = db.get_chat(cid)
+    new = 0 if ch[field] else 1
+    db.set_chat(cid, **{field: new})
+    name = "Ob-havo" if field == "send_weather" else "Dollar kursi"
+    await c.answer(f"{name} rasmi {'yoqildi' if new else 'o‘chirildi'}")
+    ch = db.get_chat(cid)
+    try:
+        await c.message.edit_text(chat_summary(ch), reply_markup=chat_kb(cid))
+    except Exception:
+        await c.message.answer(chat_summary(ch), reply_markup=chat_kb(cid))
 
 
 @router.callback_query(F.data.startswith("cax:"))

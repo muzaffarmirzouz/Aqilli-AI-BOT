@@ -6,7 +6,7 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
 - 💵 **Valyuta kursi** — Markaziy bank (USD, EUR, RUB), ertangi kurs e'lon qilingan bo'lsa u ham
 - 🔔 **Har kuni 21:00** da ertangi kun: 3 ta rasm (albom) — namoz vaqtlari, ob-havo, valyuta kursi
 - 🌤 / 💵 tugmalari ham Namanganliklar.uz logoli rasm bilan javob beradi
-- 📢 **Kanal/guruhga admin qilinsa** — har kuni 21:00 da 3 ta rasm (namoz, ob-havo, kurs) bitta albom bo'lib chiqadi.
+- 📢 **Kanal/guruhga admin qilinsa** — har kuni 21:00 da namoz vaqtlari rasmi chiqadi. Ob-havo va dollar kursi rasmlari faqat kanal panelida yoqilsa qo'shiladi (standart: o'chiq).
   Rasmda har doim Namanganliklar.uz nomi va logosi bo'ladi (kanal nomi yozilmaydi).
 
 ## Kanal rasmini sozlash
@@ -15,6 +15,7 @@ Botda «📢 Kanalimga ulash» → kanal nomi (⚙️) bosiladi:
 - 📣 **Reklama matni** — reklama joyiga yoziladigan matn (bo'sh bo'lsa «Reklamangiz uchun joy»)
 - 📞 **Bog'lanish** — reklama ostidagi kontakt (standart: kanal @username; `-` — ko'rsatmaslik)
 - 🖼 **Reklama rasmi** — reklama joyiga to'liq rasm (gorizontal, ~4:1)
+- 🌤 **Ob-havo rasmi** / 💵 **Kurs rasmi** — yoqish/o'chirish (standart: o'chiq)
 - 🗑 **Reklamani tozalash**, 👁 **Ko'rinishni ko'rish**, 📤 **Hozir kanalga sinov post**
 Har o'zgarishdan keyin bot yangi ko'rinishni sizga yuboradi.
 

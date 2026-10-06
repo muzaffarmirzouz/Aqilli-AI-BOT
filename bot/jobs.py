@@ -117,20 +117,37 @@ def bot_style() -> dict:
     return dict(theme=t, ad_contact=AD_CONTACT, logo=default_logo(), logo_tint=True)
 
 
-async def album(region: str, d: date, data: dict, style: dict) -> list[tuple[str, bytes]]:
-    """[(nom, rasm)] — namoz (majburiy), ob-havo, valyuta (bo'lsa)."""
+async def album(region: str, d: date, data: dict, style: dict,
+                weather: bool = True, rates: bool = True) -> list[tuple[str, bytes]]:
+    """[(nom, rasm)] — namoz (majburiy), ob-havo va valyuta (yoqilgan va ma'lumot bo'lsa)."""
     out = []
     p = await asyncio.to_thread(poster_bytes, region, d, data, BRAND, "", **style)
     if p is None:
         return []
     out.append(("namoz", p))
-    w = await asyncio.to_thread(weather_bytes, region, d, data, **style)
-    if w:
-        out.append(("obhavo", w))
-    r = await asyncio.to_thread(rates_bytes, region, d, data["rates"], **style)
-    if r:
-        out.append(("kurs", r))
+    if weather:
+        w = await asyncio.to_thread(weather_bytes, region, d, data, **style)
+        if w:
+            out.append(("obhavo", w))
+    if rates:
+        r = await asyncio.to_thread(rates_bytes, region, d, data["rates"], **style)
+        if r:
+            out.append(("kurs", r))
     return out
+
+
+async def send_items(bot: Bot, chat_id: int, items, caption: str):
+    """1 ta rasm — oddiy rasm, 2+ — albom. Natija: xabarlar ro'yxati."""
+    if len(items) == 1:
+        name, b = items[0]
+        src = b if isinstance(b, str) else BufferedInputFile(b, f"{name}.jpg")
+        m = await bot.send_photo(chat_id, src, caption=caption)
+        return [m]
+    return await bot.send_media_group(chat_id, _media(items, caption))
+
+
+def chat_flags(c) -> dict:
+    return dict(weather=bool(c["send_weather"]), rates=bool(c["send_rates"]))
 
 
 def _media(items, caption: str):
@@ -267,27 +284,27 @@ async def evening(bot: Bot, only_chat: int | None = None, only_user: int | None 
             ok = await _safe(lambda: bot.send_message(u["id"], txt),
                              on_forbidden=lambda uid=u["id"]: db.set_user(uid, active=0))
         else:
-            ok = await _safe(lambda: bot.send_media_group(u["id"], _media(items, cap)),
+            ok = await _safe(lambda: send_items(bot, u["id"], items, cap),
                              on_forbidden=lambda uid=u["id"]: db.set_user(uid, active=0))
             if ok and u["region"] not in file_ids:
                 file_ids[u["region"]] = [(n, m.photo[-1].file_id) for (n, _), m in zip(items, ok)]
         sent_u += bool(ok)
         await asyncio.sleep(0.05)
 
-    # --- kanallar / guruhlar: albom (namoz + ob-havo + kurs)
+    # --- kanallar / guruhlar: namoz rasmi + (panelda yoqilgan bo'lsa) ob-havo va kurs
     chats = db.active_chats() if only_user is None else []
     if only_chat:
         c = db.get_chat(only_chat)
         chats = [c] if c else []
     for c in chats:
         data = await data_for(c["region"])
-        items = await album(c["region"], d, data, await chat_style(bot, c))
+        items = await album(c["region"], d, data, await chat_style(bot, c), **chat_flags(c))
         if not items:
             missing.add(region_name(c["region"]))
             continue
         cap = channel_caption(c["region"], d, data, c["username"])
         ok = await _safe(
-            lambda: bot.send_media_group(c["id"], _media(items, cap)),
+            lambda: send_items(bot, c["id"], items, cap),
             on_forbidden=lambda cid=c["id"]: db.set_chat(cid, active=0),
         )
         sent_c += bool(ok)
