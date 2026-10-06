@@ -1,5 +1,6 @@
 import asyncio
 import calendar
+import html
 import logging
 import re
 from datetime import date, timedelta
@@ -753,10 +754,11 @@ async def _send_news(bot: Bot, uid: int):
     img = await asyncio.to_thread(news.render_news, buf.read(), st["text"], st["style"], st["fmt"],
                                   today(), st.get("tag", ""))
     db.kv_set(f"news_pref:{uid}", f"{st['style']}|{st['fmt']}")
-    await bot.send_document(uid, BufferedInputFile(img, f"namanganliklar_{today():%Y%m%d}.jpg"),
-                            caption=f"📰 {STYLE_NAMES[st['style']]} · {FMT_NAMES[st['fmt']]}\n"
-                                    "Sifatni yo'qotmaslik uchun fayl ko'rinishida yuborildi.",
-                            reply_markup=news_kb(st))
+    # izoh: rasmdagi sarlavha aynan o'zi, qalin (yulduzchalarsiz)
+    plain = " ".join(st["text"].replace("*", "").split())
+    caption = f"<b>{html.escape(plain)}</b>"[:1024]
+    await bot.send_photo(uid, BufferedInputFile(img, f"namanganliklar_{today():%Y%m%d}.jpg"),
+                         caption=caption, reply_markup=news_kb(st))
 
 
 def _pref(uid: int) -> tuple[str, str]:

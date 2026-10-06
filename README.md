@@ -10,8 +10,8 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
   Rasmda har doim Namanganliklar.uz nomi va logosi bo'ladi (kanal nomi yozilmaydi).
 
 ## 📰 Yangilik rasmi (faqat adminlar)
-Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi tayyor rasm (fayl ko'rinishida) qaytadi.
-- Urg'u (sariq): `*so'z*` · Teg (qizil yorliq): `[Tezkor] Sarlavha` · Kirill va lotin ikkalasi ham ishlaydi
+Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi tayyor rasm qaytadi, izohida sarlavha qalin (jirniy) yozuvda.
+- Urg'u (qizil): `*so'z*` · Teg (qizil yorliq): `[Tezkor] Sarlavha` · Kirill va lotin ikkalasi ham ishlaydi
 - Rasm ostidagi tugmalar: uslub (To'liq rasm / Panel), format (1:1 / 4:5), matnni o'zgartirish
 - Oxirgi tanlangan uslub va format eslab qolinadi
 
