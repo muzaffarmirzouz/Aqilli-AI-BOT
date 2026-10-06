@@ -144,6 +144,21 @@ def _brand_pill(base: Image.Image, x, y, h):
     return w
 
 
+SLOGAN = os.getenv("NEWS_SLOGAN", "Тезкор, Холис, Ишончли ахборот манбаи")
+
+
+def _slogan(dr, x, y, size, align="r", name=True):
+    """«Namanganliklar.uz · Тезкор, Холис, Ишончли ахборот манбаи» (sayt nomi lotinda, shior kirillda)."""
+    fb, fs = font("bold", size), font("semi", size)
+    parts = ([("Namanganliklar", fb, WHITE), (".uz", fb, HL), ("  ·  ", fs, (255, 255, 255, 140))] if name else []) \
+        + [(SLOGAN, fs, (255, 255, 255, 215))]
+    total = sum(dr.textlength(t, font=f) for t, f, _ in parts)
+    cx = _s(x) - (total if align == "r" else total / 2 if align == "c" else 0)
+    for t, f, col in parts:
+        dr.text((cx, _s(y)), t, font=f, fill=col, anchor="ls")
+        cx += dr.textlength(t, font=f)
+
+
 def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "kvadrat",
                 d: date | None = None, tag: str = "") -> bytes:
     W, H = SIZES.get(fmt, SIZES["kvadrat"])
@@ -176,7 +191,7 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
                                  radius=_s(24), fill=RED)
             dr.text((_s(W / 2), _s(py)), tag.upper(), font=tf, fill=WHITE, anchor="mm")
         bar_h = 80
-        bar_y = H - 44 - bar_h
+        bar_y = H - 70 - bar_h
         avail = bar_y - 30 - top_text
         f, size, lines = _fit(dr, text, "head", W - 160, 4, 44, 24)
         lh = size * 1.24
@@ -188,6 +203,8 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
         tmp = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         pw = _brand_pill(tmp, 0, 0, bar_h)
         canvas.alpha_composite(tmp.crop((0, 0, _s(pw), _s(bar_h))), (_s((W - pw) / 2), _s(bar_y)))
+        dr = ImageDraw.Draw(canvas)
+        _slogan(dr, W / 2, H - 28, 17, "c", name=False)
     else:  # "full"
         canvas = _cover(photo, _s(W), _s(H), 0.3).convert("RGBA")
         # pastki gradient
@@ -231,8 +248,8 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
         dr.line([(_s(48), _s(foot - 22)), (_s(W - 48), _s(foot - 22))], fill=(255, 255, 255, 70), width=_s(2))
         dr.text((_s(48), _s(foot + 8)), d.strftime("%d.%m.%Y"), font=font("semi", 21),
                 fill=(255, 255, 255, 200), anchor="ls")
-        dr.text((_s(W - 48), _s(foot + 8)), "namanganliklar.uz", font=font("semi", 21),
-                fill=(255, 255, 255, 200), anchor="rs")
+        # o'ng tomonda: «Namanganliklar.uz · Тезкор, Холис, Ишончли ахборот манбаи»
+        _slogan(dr, W - 48, foot + 8, 17, "r")
 
     out = canvas.convert("RGB").resize((W, H), Image.LANCZOS)
     buf = io.BytesIO()
