@@ -207,16 +207,28 @@ def weather_icon(d, code, cx, cy, c, cloud_col=(240, 236, 226), z=1.0):
 
 
 # ---------------- asosiy chizish ----------------
-DEFAULT_LOGO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "assets", "namanganliklar_logo.png")
+ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+BRAND_RED = (255, 78, 68)
+BRAND_NAVY = (33, 59, 92)
 
 
-def default_logo() -> bytes | None:
+def _asset(name: str) -> bytes | None:
     try:
-        with open(DEFAULT_LOGO, "rb") as f:
+        with open(os.path.join(ASSETS, name), "rb") as f:
             return f.read()
     except OSError:
         return None
+
+
+def default_logo() -> bytes | None:
+    """Rangli NG belgisi (oq/och fon uchun)."""
+    return _asset("ng_mark.png")
+
+
+def brand_mark(dark: bool) -> Image.Image | None:
+    """To'q fon uchun — qizil+oq, och fon uchun — qizil+to'q ko'k (asl ranglar)."""
+    data = _asset("ng_mark_rev.png" if dark else "ng_mark.png")
+    return Image.open(io.BytesIO(data)).convert("RGBA") if data else None
 
 
 def _load_logo(data: bytes, tint: bool, color) -> Image.Image | None:
@@ -281,7 +293,8 @@ class Frame:
 
         # sarlavha: logotip + brend | shahar
         brand = (brand or "").strip()
-        logo_im = _load_logo(logo, logo_tint, self.TXT) if logo else None
+        # logo_tint=True — brend belgisi: fonga mos variant (asl ranglar saqlanadi)
+        logo_im = brand_mark(T_["dark"]) if logo_tint else (_load_logo(logo, False, self.TXT) if logo else None)
         if logo_im is not None:
             lh = 80
             lw = min(220, logo_im.width * lh / logo_im.height)

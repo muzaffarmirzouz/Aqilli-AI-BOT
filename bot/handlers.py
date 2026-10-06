@@ -11,7 +11,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated,
                            KeyboardButton, Message, ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from . import db, jobs, prayer_table, sources, subscribe, texts
+from . import db, jobs, news, prayer_table, sources, subscribe, texts
 from .config import AD_CONTACT, ADMIN_IDS, BRAND, REQUIRED_CHANNEL, PRAYER_KEYS, SEND_AT
 from .poster import DEFAULT_THEME, THEMES, default_logo
 from .regions import DEFAULT_REGION, REGIONS
@@ -642,6 +642,7 @@ def admin_kb():
     kb.button(text="👁 Bot rasmini ko'rish", callback_data="adm:pv")
     kb.button(text="📢 Barcha kanallar", callback_data="adm:chats")
     kb.button(text="📊 Statistika", callback_data="adm:stat")
+    kb.button(text="📰 Yangilik rasmi", callback_data="adm:news")
     kb.adjust(2)
     return kb.as_markup()
 
@@ -683,6 +684,14 @@ async def a_panel_cb(c: CallbackQuery, bot: Bot):
                 kb.button(text=f"⚙️ {ch['title']} · {th}", callback_data=f"ch:{ch['id']}")
             kb.adjust(1)
             await c.message.answer(f"📢 Ulangan kanal/guruhlar: {len(chats)}", reply_markup=kb.as_markup())
+    elif act == "news":
+        await c.message.answer(
+            "📰 <b>Yangilik rasmi</b>\n\n"
+            "Menga rasm yuboring va izohiga (caption) sarlavhani yozing — Namanganliklar.uz "
+            "shablonidagi tayyor rasmni qaytaraman.\n\n"
+            "• Urg'u (sariq rang): <code>*so'z*</code>\n"
+            "• Teg (qizil yorliq): <code>[Tezkor] Sarlavha</code>\n"
+            "• Tayyor rasm ostidagi tugmalar: uslub (to'liq / panel), format (1:1 / 4:5), matnni o'zgartirish.")
     elif act == "stat":
         st = db.stats()
         await c.message.answer(f"👥 Foydalanuvchilar: {st['users']} (faol {st['active']}, kechki xabar {st['notify']})\n"
@@ -714,11 +723,94 @@ async def a_set_bot_theme(c: CallbackQuery, bot: Bot):
     await _bot_preview(c.from_user.id, bot)
 
 
+# =================== Yangilik rasmi (sayt uchun shablon) ===================
+NEWS: dict[int, dict] = {}       # admin -> {file_id, text, style, fmt, tag}
+NEWS_WAIT: set[int] = set()      # sarlavha kutilayotgan adminlar
+STYLE_NAMES = {"full": "To'liq rasm", "panel": "Panel (klassik)"}
+FMT_NAMES = {"kvadrat": "Kvadrat 1:1", "vertikal": "Vertikal 4:5"}
+
+
+def _parse_caption(text: str) -> tuple[str, str]:
+    """'[Tezkor] Sarlavha' -> ('Tezkor', 'Sarlavha')"""
+    m = re.match(r"\s*\[([^\]]{1,24})\]\s*(.*)", text or "", re.S)
+    return (m.group(1).strip(), m.group(2).strip()) if m else ("", (text or "").strip())
+
+
+def news_kb(st: dict):
+    kb = InlineKeyboardBuilder()
+    other_style = "panel" if st["style"] == "full" else "full"
+    other_fmt = "vertikal" if st["fmt"] == "kvadrat" else "kvadrat"
+    kb.button(text=f"🎨 {STYLE_NAMES[other_style]}", callback_data=f"nw:style:{other_style}")
+    kb.button(text=f"📐 {FMT_NAMES[other_fmt]}", callback_data=f"nw:fmt:{other_fmt}")
+    kb.button(text="✏️ Matnni o'zgartirish", callback_data="nw:text")
+    kb.adjust(2, 1)
+    return kb.as_markup()
+
+
+async def _send_news(bot: Bot, uid: int):
+    st = NEWS[uid]
+    buf = await bot.download(st["file_id"])
+    img = await asyncio.to_thread(news.render_news, buf.read(), st["text"], st["style"], st["fmt"],
+                                  today(), st.get("tag", ""))
+    db.kv_set(f"news_pref:{uid}", f"{st['style']}|{st['fmt']}")
+    await bot.send_document(uid, BufferedInputFile(img, f"namanganliklar_{today():%Y%m%d}.jpg"),
+                            caption=f"📰 {STYLE_NAMES[st['style']]} · {FMT_NAMES[st['fmt']]}\n"
+                                    "Sifatni yo'qotmaslik uchun fayl ko'rinishida yuborildi.",
+                            reply_markup=news_kb(st))
+
+
+def _pref(uid: int) -> tuple[str, str]:
+    v = (db.kv_get(f"news_pref:{uid}") or "full|kvadrat").split("|")
+    return (v[0] if v[0] in STYLE_NAMES else "full", v[1] if len(v) > 1 and v[1] in FMT_NAMES else "kvadrat")
+
+
+@admin.message(F.photo | (F.document & F.document.mime_type.startswith("image/")))
+async def news_photo(m: Message, bot: Bot):
+    fid = m.photo[-1].file_id if m.photo else m.document.file_id
+    tag, text = _parse_caption(m.caption or "")
+    style, fmt = _pref(m.from_user.id)
+    NEWS[m.from_user.id] = {"file_id": fid, "text": text, "style": style, "fmt": fmt, "tag": tag}
+    if not text:
+        NEWS_WAIT.add(m.from_user.id)
+        return await m.answer("✏️ Endi sarlavhani yozing.\n"
+                              "Urg'u berish: <code>*so'z*</code> · Teg qo'shish: <code>[Tezkor] Sarlavha</code>")
+    await m.answer("⏳ Tayyorlanmoqda…")
+    await _send_news(bot, m.from_user.id)
+
+
+@admin.message(F.text & F.func(lambda m: m.from_user.id in NEWS_WAIT and not m.text.startswith("/")))
+async def news_text(m: Message, bot: Bot):
+    NEWS_WAIT.discard(m.from_user.id)
+    st = NEWS.get(m.from_user.id)
+    if not st:
+        return
+    st["tag"], st["text"] = _parse_caption(m.text)
+    await _send_news(bot, m.from_user.id)
+
+
+@router.callback_query(F.data.startswith("nw:"))
+async def news_cb(c: CallbackQuery, bot: Bot):
+    if c.from_user.id not in ADMIN_IDS:
+        return await c.answer("Ruxsat yo'q", show_alert=True)
+    st = NEWS.get(c.from_user.id)
+    if not st:
+        return await c.answer("Rasmni qaytadan yuboring", show_alert=True)
+    parts = c.data.split(":")
+    if parts[1] == "text":
+        NEWS_WAIT.add(c.from_user.id)
+        await c.answer()
+        return await c.message.answer("✏️ Yangi sarlavhani yozing:")
+    st[parts[1]] = parts[2]
+    await c.answer("Tayyorlanmoqda…")
+    await _send_news(bot, c.from_user.id)
+
+
 @admin.message(Command("admin"))
 async def a_help(m: Message):
     await m.answer(
         "<b>Admin buyruqlari</b>\n"
         "⚙️ Admin panel — menyudagi tugma (rang, kanallar, statistika)\n"
+        "📰 Yangilik rasmi — rasm yuboring, izohiga sarlavha yozing (urg'u: *so'z*, teg: [Tezkor])\n"
         "/stat — statistika\n"
         "/tekshir namangan 2026-10-07 — vaqt va manbasini ko'rish\n"
         "/oylik 2026-11 + jadval — yangi oy vaqtlarini kiritish\n"
