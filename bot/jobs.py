@@ -8,7 +8,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.types import BufferedInputFile
 
 from . import db, prayer_table, sources, texts
-from .config import ADMIN_IDS, PRECHECK_MIN, REMIND_DAYS, SEND_AT, TZ
+from .config import AD_CONTACT, ADMIN_IDS, BRAND, PRECHECK_MIN, REMIND_DAYS, SEND_AT, TZ
 from .poster import default_logo, render
 from .regions import name as region_name
 
@@ -71,19 +71,15 @@ def is_namanganliklar(title: str | None, username: str | None) -> bool:
 
 
 async def chat_poster(bot: Bot, c, d: date, data: dict) -> bytes | None:
-    """Kanal sozlamalari (rang, reklama, logotip) bilan rasm yasaydi."""
+    """Kanal rasmi: har doim Namanganliklar.uz nomi va logosi (kanal nomi yozilmaydi).
+    Kanal uchun alohida: rang va reklama."""
     ad_img = await _file(bot, c["ad_file"])
-    logo = await _file(bot, c["logo_file"])
-    tint = False
-    if logo is None and is_namanganliklar(c["title"], c["username"]):
-        logo, tint = default_logo(), True
-    username = f"@{c['username']}" if c["username"] else ""
     return await asyncio.to_thread(
-        poster_bytes, c["region"], d, data, c["title"] or "", username,
+        poster_bytes, c["region"], d, data, BRAND, "",
         theme=c["theme"] or "zumrad",
         ad_text=c["ad_text"] or "",
-        ad_contact=c["ad_contact"] if c["ad_contact"] is not None else username,
-        ad_image=ad_img, logo=logo, logo_tint=tint,
+        ad_contact=c["ad_contact"] if c["ad_contact"] is not None else AD_CONTACT,
+        ad_image=ad_img, logo=default_logo(), logo_tint=True,
     )
 
 

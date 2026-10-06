@@ -25,3 +25,7 @@ AYAH_SOURCE = os.getenv("AYAH_SOURCE", "Niso surasi, 103-oyat")
 FONT_DIR = os.getenv("FONT_DIR", "fonts")
 
 PRAYER_KEYS = ["bomdod", "quyosh", "peshin", "asr", "shom", "xufton"]
+
+# Barcha rasmlardagi brend nomi va reklama joyidagi standart kontakt
+BRAND = os.getenv("BRAND", "Namanganliklar.uz")
+AD_CONTACT = os.getenv("AD_CONTACT", "@NamGroup")
