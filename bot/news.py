@@ -119,6 +119,36 @@ def _cover(photo: Image.Image, w: int, h: int, top_bias: float = 0.35) -> Image.
     return im.crop((left, top, left + w, top + h))
 
 
+def _sharpen(im: Image.Image, scale: float) -> Image.Image:
+    """Kattalashtirilgan rasmni biroz tiniqlashtiradi."""
+    if scale <= 1.15:
+        return im
+    return im.filter(ImageFilter.UnsharpMask(radius=max(1, round(scale * 1.2)), percent=70, threshold=2))
+
+
+def _photo_layer(photo: Image.Image, w: int, h: int) -> Image.Image:
+    """Butun maydon uchun fon rasmi.
+    Gorizontal rasm (masalan saytdagi 800x450) kvadratga qirqilib, 2.4 barobar cho'zilsa xira chiqadi.
+    Shuning uchun u kenglik bo'yicha joylanadi (kam kattalashadi, tiniq qoladi),
+    pastki qismi toza to'q ko'k fonga silliq o'tadi."""
+    photo = ImageOps.exif_transpose(photo).convert("RGB")
+    ratio = photo.width / photo.height
+    fh = round(w / ratio)
+    if ratio > 1.2 and fh < h * 0.8:
+        # ostki qism — xiralashtirilgan rasm emas, toza to'q ko'k fon
+        bg = Image.new("RGB", (w, h), DEEP)
+        sharp = _sharpen(photo.resize((w, fh), Image.LANCZOS), w / photo.width)
+        feather = max(1, int(fh * 0.28))
+        mask = Image.new("L", (w, fh), 255)
+        md = ImageDraw.Draw(mask)
+        for i in range(feather):
+            md.line([(0, fh - 1 - i), (w, fh - 1 - i)], fill=int(255 * i / feather))
+        bg.paste(sharp, (0, 0), mask)
+        return bg, fh
+    scale = max(w / photo.width, h / photo.height)
+    return _sharpen(_cover(photo, w, h, 0.3), scale), None
+
+
 def _brand_pill(base: Image.Image, x, y, h):
     """Oq kapsula: rangli NG belgisi + NAMANGANLIKLAR.UZ. Kengligini qaytaradi."""
     dr = ImageDraw.Draw(base)
@@ -207,7 +237,8 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
         dr = ImageDraw.Draw(canvas)
         _slogan(dr, W / 2, H - 28, 17, "c", name=False)
     else:  # "full"
-        canvas = _cover(photo, _s(W), _s(H), 0.3).convert("RGBA")
+        layer, photo_h = _photo_layer(photo, _s(W), _s(H))
+        canvas = layer.convert("RGBA")
         # pastki gradient
         grad = Image.new("L", (1, 256))
         start = 0.38
@@ -233,6 +264,15 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
         foot = H - 56
         ty_last = foot - 58
         ty0 = ty_last - lh * (len(lines) - 1)
+        if photo_h:
+            # gorizontal rasm: sarlavhani rasm osti va pastki chiziq oralig'ining o'rtasiga qo'yamiz
+            area_top = photo_h / K * 0.86
+            area_bot = foot - 22
+            tag_h = 60 if tag else 0
+            block = size * 0.86 + lh * (len(lines) - 1) + size * 0.12 + tag_h
+            ty0 = area_top + (area_bot - area_top - block) / 2 + tag_h + size * 0.86
+            ty0 = min(ty0, foot - 58 - lh * (len(lines) - 1))  # pastki chiziqqa tegib ketmasin
+            ty_last = ty0 + lh * (len(lines) - 1)
         # urg'u chizig'i
         dr.rounded_rectangle([_s(48), _s(ty0 - size * 0.86), _s(56), _s(ty_last + size * 0.12)],
                              radius=_s(4), fill=RED)
