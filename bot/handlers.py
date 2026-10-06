@@ -744,7 +744,33 @@ def news_kb(st: dict):
     kb.button(text=f"🎨 {STYLE_NAMES[other_style]}", callback_data=f"nw:style:{other_style}")
     kb.button(text=f"📐 {FMT_NAMES[other_fmt]}", callback_data=f"nw:fmt:{other_fmt}")
     kb.button(text="✏️ Matnni o'zgartirish", callback_data="nw:text")
-    kb.adjust(2, 1)
+    kb.button(text="📤 Kanalga yuborish", callback_data="nwpub")
+    kb.adjust(2, 1, 1)
+    return kb.as_markup()
+
+
+def _targets() -> list[tuple]:
+    """Yuborish mumkin bo'lgan kanallar: (chat_id, nomi, username)."""
+    out, seen = [], set()
+    if REQUIRED_CHANNEL:
+        u = REQUIRED_CHANNEL.lstrip("@")
+        out.append((REQUIRED_CHANNEL, REQUIRED_CHANNEL, u))
+        seen.add(u.lower())
+    for ch in db.active_chats():
+        if ch["username"] and ch["username"].lower() in seen:
+            continue
+        out.append((ch["id"], ch["title"] or str(ch["id"]), ch["username"]))
+    return out
+
+
+def _pub_kb(targets):
+    kb = InlineKeyboardBuilder()
+    for i, (_, title, _u) in enumerate(targets[:20]):
+        kb.button(text=f"📢 {title}", callback_data=f"nwp:{i}")
+    if len(targets) > 1:
+        kb.button(text=f"📢 Hammasiga ({len(targets)})", callback_data="nwp:all")
+    kb.button(text="◀️ Orqaga", callback_data="nwback")
+    kb.adjust(1)
     return kb.as_markup()
 
 
@@ -805,6 +831,51 @@ async def news_cb(c: CallbackQuery, bot: Bot):
     st[parts[1]] = parts[2]
     await c.answer("Tayyorlanmoqda…")
     await _send_news(bot, c.from_user.id)
+
+
+@router.callback_query(F.data.in_({"nwpub", "nwback"}) | F.data.startswith("nwp:") | F.data.startswith("nwy:"))
+async def news_publish(c: CallbackQuery, bot: Bot):
+    """Tayyor rasmni kanalga forward belgisisiz (copy) yuborish."""
+    if c.from_user.id not in ADMIN_IDS:
+        return await c.answer("Ruxsat yo'q", show_alert=True)
+    st = NEWS.setdefault(c.from_user.id, {"style": "full", "fmt": "kvadrat", "text": ""})
+    if c.data == "nwback":
+        await c.message.edit_reply_markup(reply_markup=news_kb(st) if st.get("file_id") else None)
+        return await c.answer()
+    if c.data == "nwpub":
+        st["targets"] = _targets()
+        if not st["targets"]:
+            return await c.answer("Bot hech qaysi kanalga ulanmagan", show_alert=True)
+        await c.message.edit_reply_markup(reply_markup=_pub_kb(st["targets"]))
+        return await c.answer("Qaysi kanalga yuboramiz?")
+    targets = st.get("targets") or _targets()
+    key = c.data.split(":", 1)[1]
+    chosen = targets if key == "all" else ([targets[int(key)]] if key.isdigit() and int(key) < len(targets) else [])
+    if not chosen:
+        return await c.answer("Kanal topilmadi, qaytadan urinib ko'ring", show_alert=True)
+    if c.data.startswith("nwp:"):
+        # tasdiqlash
+        names = ", ".join(t[1] for t in chosen)
+        kb = InlineKeyboardBuilder()
+        kb.button(text="✅ Ha, yuborish", callback_data=f"nwy:{key}")
+        kb.button(text="◀️ Bekor qilish", callback_data="nwback")
+        kb.adjust(2)
+        await c.message.edit_reply_markup(reply_markup=kb.as_markup())
+        return await c.answer(f"{names} ga yuborilsinmi?", show_alert=False)
+    # nwy: — yuborish
+    await c.answer("Yuborilmoqda…")
+    ok, fail = [], []
+    for chat_id, title, uname in chosen:
+        try:
+            # forward belgisisiz, tugmalarsiz toza post: shu rasm + shu qalin izoh
+            m = await bot.send_photo(chat_id, c.message.photo[-1].file_id, caption=c.message.html_text)
+            link = f"https://t.me/{uname}/{m.message_id}" if uname else ""
+            ok.append(f"✅ <a href=\"{link}\">{html.escape(title)}</a>" if link else f"✅ {html.escape(title)}")
+        except Exception as e:
+            fail.append(f"❌ {html.escape(title)} — {html.escape(str(e))[:80]}")
+        await asyncio.sleep(0.1)
+    await c.message.edit_reply_markup(reply_markup=news_kb(st) if st.get("file_id") else None)
+    await c.message.answer("\n".join(ok + fail) or "Hech narsa yuborilmadi", disable_web_page_preview=True)
 
 
 @admin.message(Command("admin"))

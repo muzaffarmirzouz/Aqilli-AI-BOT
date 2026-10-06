@@ -11,7 +11,29 @@ from datetime import date
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
-from .poster import brand_mark, font
+from .poster import ASSETS, brand_mark
+import os
+from PIL import ImageFont
+
+# Inter Display — lotin va o'zbek kirill (Қ Ғ Ҳ Ў ʻ) harflarini to'liq qo'llaydi
+_NEWS_FONTS = {
+    "head": "InterDisplay-ExtraBold.otf",
+    "bold": "InterDisplay-Bold.otf",
+    "semi": "Inter-SemiBold.otf",
+}
+_FALLBACK = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+_fc: dict = {}
+
+
+def font(role: str, size: int):
+    key = (role, size)
+    if key not in _fc:
+        path = os.path.join(ASSETS, "fonts", _NEWS_FONTS.get(role, _NEWS_FONTS["bold"]))
+        try:
+            _fc[key] = ImageFont.truetype(path, size * K)
+        except OSError:
+            _fc[key] = ImageFont.truetype(_FALLBACK, size * K)
+    return _fc[key]
 
 # Namanganliklar.uz brend ranglari (logotipdan olingan)
 NAVY = (33, 59, 92)        # logodagi to'q ko'k
@@ -66,15 +88,25 @@ def _fit(dr, text, role, maxw, max_lines, start, minimum):
     return f, minimum, _layout(dr, tokens, f, _s(maxw))
 
 
-def _draw_lines(dr, lines, f, x, y, line_h, color, accent, align="left", width=0):
-    sp = dr.textlength(" ", font=f)
-    for i, line in enumerate(lines):
-        lw = sum(dr.textlength(w, font=f) for w, _ in line) + sp * (len(line) - 1)
-        cx = _s(x) if align == "left" else _s(x) + (_s(width) - lw) / 2
-        by = _s(y + i * line_h)
-        for w, hl in line:
-            dr.text((cx, by), w, font=f, fill=accent if hl else color, anchor="ls")
-            cx += dr.textlength(w, font=f) + sp
+def _draw_lines(canvas, lines, f, x, y, line_h, color, accent, align="left", width=0, shadow=True):
+    """Matnni yumshoq soya bilan chizadi. Yangi canvas qaytaradi."""
+    def paint(dr, fill_main, fill_acc, dx=0, dy=0):
+        sp = dr.textlength(" ", font=f)
+        for i, line in enumerate(lines):
+            lw = sum(dr.textlength(w, font=f) for w, _ in line) + sp * (len(line) - 1)
+            cx = _s(x) if align == "left" else _s(x) + (_s(width) - lw) / 2
+            by = _s(y + i * line_h)
+            for w, hl in line:
+                dr.text((cx + dx, by + dy), w, font=f, fill=fill_acc if hl else fill_main, anchor="ls")
+                cx += dr.textlength(w, font=f) + sp
+
+    if shadow:
+        sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        paint(ImageDraw.Draw(sh), (0, 0, 0, 200), (0, 0, 0, 200), 0, _s(3))
+        sh = sh.filter(ImageFilter.GaussianBlur(_s(7)))
+        canvas = Image.alpha_composite(canvas, sh)
+    paint(ImageDraw.Draw(canvas), color, accent)
+    return canvas
 
 
 def _cover(photo: Image.Image, w: int, h: int, top_bias: float = 0.35) -> Image.Image:
@@ -90,7 +122,7 @@ def _cover(photo: Image.Image, w: int, h: int, top_bias: float = 0.35) -> Image.
 def _brand_pill(base: Image.Image, x, y, h):
     """Oq kapsula: rangli NG belgisi + NAMANGANLIKLAR.UZ. Kengligini qaytaradi."""
     dr = ImageDraw.Draw(base)
-    f = font("body800", int(h * 0.40))
+    f = font("head", int(h * 0.40))
     t1, t2 = "NAMANGANLIKLAR", ".UZ"
     logo = brand_mark(dark=False)
     lh = h * 0.60
@@ -138,7 +170,7 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
         # teg (ixtiyoriy)
         top_text = py + 70
         if tag:
-            tf = font("body800", 24)
+            tf = font("bold", 22)
             tw = dr.textlength(tag.upper(), font=tf) / K + 44
             dr.rounded_rectangle([_s(W / 2 - tw / 2), _s(py - 24), _s(W / 2 + tw / 2), _s(py + 24)],
                                  radius=_s(24), fill=RED)
@@ -146,11 +178,12 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
         bar_h = 80
         bar_y = H - 44 - bar_h
         avail = bar_y - 30 - top_text
-        f, size, lines = _fit(dr, text, "body800", W - 160, 4, 54, 28)
-        lh = size * 1.22
+        f, size, lines = _fit(dr, text, "head", W - 160, 4, 44, 24)
+        lh = size * 1.24
         block = lh * len(lines)
         ty = top_text + max(0, (avail - block) / 2) + size * 0.9
-        _draw_lines(dr, lines, f, 80, ty, lh, WHITE, HL, "center", W - 160)
+        canvas = _draw_lines(canvas, lines, f, 80, ty, lh, WHITE, HL, "center", W - 160)
+        dr = ImageDraw.Draw(canvas)
         # pastki brend kapsulasi (markazda)
         tmp = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         pw = _brand_pill(tmp, 0, 0, bar_h)
@@ -177,27 +210,28 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
         canvas = Image.alpha_composite(canvas, top)
         dr = ImageDraw.Draw(canvas)
 
-        f, size, lines = _fit(dr, text, "body800", W - 150, 5 if fmt == "vertikal" else 4, 68, 30)
-        lh = size * 1.18
+        f, size, lines = _fit(dr, text, "head", W - 150, 5 if fmt == "vertikal" else 4, 54, 26)
+        lh = size * 1.2
         foot = H - 56
         ty_last = foot - 58
         ty0 = ty_last - lh * (len(lines) - 1)
         # urg'u chizig'i
         dr.rounded_rectangle([_s(48), _s(ty0 - size * 0.86), _s(56), _s(ty_last + size * 0.12)],
                              radius=_s(4), fill=RED)
-        _draw_lines(dr, lines, f, 76, ty0, lh, WHITE, HL)
+        canvas = _draw_lines(canvas, lines, f, 76, ty0, lh, WHITE, HL)
+        dr = ImageDraw.Draw(canvas)
         # teg sarlavha ustida
         if tag:
-            tf = font("body800", 22)
+            tf = font("semi", 21)
             tw = dr.textlength(tag.upper(), font=tf) / K + 36
             yy = ty0 - size - 40
             dr.rounded_rectangle([_s(76), _s(yy - 20), _s(76 + tw), _s(yy + 20)], radius=_s(8), fill=RED)
             dr.text((_s(76 + tw / 2), _s(yy)), tag.upper(), font=tf, fill=WHITE, anchor="mm")
         # pastki qator
         dr.line([(_s(48), _s(foot - 22)), (_s(W - 48), _s(foot - 22))], fill=(255, 255, 255, 70), width=_s(2))
-        dr.text((_s(48), _s(foot + 8)), d.strftime("%d.%m.%Y"), font=font("body800", 22),
+        dr.text((_s(48), _s(foot + 8)), d.strftime("%d.%m.%Y"), font=font("semi", 21),
                 fill=(255, 255, 255, 200), anchor="ls")
-        dr.text((_s(W - 48), _s(foot + 8)), "namanganliklar.uz", font=font("body800", 22),
+        dr.text((_s(W - 48), _s(foot + 8)), "namanganliklar.uz", font=font("semi", 21),
                 fill=(255, 255, 255, 200), anchor="rs")
 
     out = canvas.convert("RGB").resize((W, H), Image.LANCZOS)

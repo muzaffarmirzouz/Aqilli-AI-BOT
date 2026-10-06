@@ -14,6 +14,8 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
 - Urg'u (qizil): `*so'z*` · Teg (qizil yorliq): `[Tezkor] Sarlavha` · Kirill va lotin ikkalasi ham ishlaydi
 - Rasm ostidagi tugmalar: uslub (To'liq rasm / Panel), format (1:1 / 4:5), matnni o'zgartirish
 - Oxirgi tanlangan uslub va format eslab qolinadi
+- 📤 **Kanalga yuborish** — @Namanganliklar_uz yoki bot ulangan istalgan kanalga (yoki hammasiga) forward belgisisiz, toza post qilib yuboradi; tasdiqlashdan keyin yuboriladi, post havolasi qaytadi
+  (bot o'sha kanalda «Xabar joylash» huquqiga ega admin bo'lishi kerak)
 
 ## Majburiy obuna
 Bot faqat **@Namanganliklar_uz** kanaliga obuna bo'lganlar uchun ishlaydi (adminlar tekshirilmaydi).
