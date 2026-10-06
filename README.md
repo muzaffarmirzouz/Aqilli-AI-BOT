@@ -24,7 +24,8 @@ bosilgandan keyin chiqadi.
 - `/sayt` — holat, `/sayt off` — o'chirish, `/sayt on` — yoqish
 - Qo'lda yuborilgan rasmda ham havola bo'lishi mumkin: izoh oxiriga maqola manzilini yozing
 - Sozlamalar: `SITE_URL` (standart https://namanganliklar.uz), `SITE_POLL_SEC` (90),
-  `SITE_IMAGE_SIZE` — saytda rasmning kattaroq nusxasi bo'lsa, papka nomi (masalan `1200x800`)
+  `SITE_IMAGE_SIZE` — rasm papkasi (standart `800x450` — saytdagi eng katta nusxa)
+- Saytdan kelgan rasm gorizontal bo'lgani uchun standart uslub — «Panel» (tugma bilan almashtirish mumkin)
 
 ## Majburiy obuna
 Bot faqat **@Namanganliklar_uz** kanaliga obuna bo'lganlar uchun ishlaydi (adminlar tekshirilmaydi).

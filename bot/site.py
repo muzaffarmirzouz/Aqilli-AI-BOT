@@ -52,7 +52,7 @@ def parse_article(page: str) -> tuple[str, str]:
                 best = f"{SITE_URL}/uploads/{w}x{h}/{m.group(1)}"
         image = best
         # Railway'da sozlanadigan katta o'lcham (masalan SITE_IMAGE_SIZE=1200x800)
-        big = os.getenv("SITE_IMAGE_SIZE", "").strip()
+        big = os.getenv("SITE_IMAGE_SIZE", "800x450").strip()
         if big:
             image = [f"{SITE_URL}/uploads/{big}/{m.group(1)}", image]
     if isinstance(image, str):
