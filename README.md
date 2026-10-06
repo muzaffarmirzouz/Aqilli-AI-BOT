@@ -6,7 +6,17 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
 - 💵 **Valyuta kursi** — Markaziy bank (USD, EUR, RUB), ertangi kurs e'lon qilingan bo'lsa u ham
 - 🔔 **Har kuni 21:00** da ertangi namoz vaqtlari + ob-havo + dollar kursi
 - 📢 **Kanal/guruhga admin qilinsa** — har kuni 21:00 da ertangi kun posteri (rasm) avtomatik chiqadi.
-  Rasmda kanal nomi va @username yoziladi. Kanal egasi botda hududni tanlaydi.
+  Rasmda kanal nomi va @username yoziladi.
+
+## Kanal rasmini sozlash
+Botda «📢 Kanalimga ulash» → kanal nomi (⚙️) bosiladi:
+- 🎨 **Rasm rangi** — 6 xil: Zumrad, Tungi ko'k, Bordo, Qahva, Qora, Oq-oltin
+- 📣 **Reklama matni** — reklama joyiga yoziladigan matn (bo'sh bo'lsa «Reklamangiz uchun joy»)
+- 📞 **Bog'lanish** — reklama ostidagi kontakt (standart: kanal @username; `-` — ko'rsatmaslik)
+- 🖼 **Reklama rasmi** — reklama joyiga to'liq rasm (gorizontal, ~4:1)
+- 🏷 **Logotip** — o'z logotipingiz (shaffof PNG ni fayl qilib yuboring). Nomida «namanganliklar» bor kanallarga va botning o'z rasmlariga Namanganliklar.uz logosi avtomatik qo'yiladi
+- 🗑 **Reklamani tozalash**, 👁 **Ko'rinishni ko'rish**, 📤 **Hozir kanalga sinov post**
+Har o'zgarishdan keyin bot yangi ko'rinishni sizga yuboradi.
 
 ## Ma'lumot manbalari
 | Ma'lumot | Manba |
@@ -47,7 +57,6 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
 | `PRECHECK_MIN` | `30` | Necha daqiqa oldin tekshirish |
 | `REMIND_DAYS` | `5` | Jadval tugashidan necha kun oldin eslatish |
 | `TAKBIR` | `40,0,10,10,10,10` | Bomdod, quyosh, peshin, asr, shom, xufton. `0` — ko'rsatilmaydi |
-| `AYAH_TEXT`, `AYAH_SOURCE` | Niso, 103 | Posterdagi oyat |
 
 ## Lokal ishga tushirish
 ```bash

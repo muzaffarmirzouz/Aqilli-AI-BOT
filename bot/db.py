@@ -24,6 +24,13 @@ _con.executescript(
     """
 )
 _con.commit()
+# yangi ustunlar (eski bazalar uchun ham)
+for _col in ("theme TEXT", "ad_text TEXT", "ad_contact TEXT", "ad_file TEXT", "logo_file TEXT"):
+    try:
+        _con.execute(f"ALTER TABLE chats ADD COLUMN {_col}")
+    except sqlite3.OperationalError:
+        pass
+_con.commit()
 
 
 # ---------- foydalanuvchilar ----------

@@ -9,7 +9,7 @@ from aiogram.types import BufferedInputFile
 
 from . import db, prayer_table, sources, texts
 from .config import ADMIN_IDS, PRECHECK_MIN, REMIND_DAYS, SEND_AT, TZ
-from .poster import render
+from .poster import default_logo, render
 from .regions import name as region_name
 
 log = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ async def collect(region: str, d: date) -> dict:
     return {"rec": rec, "w": w, "rates": rates, "rates_for_d": rates_for_d}
 
 
-def poster_bytes(region: str, d: date, data: dict, brand: str, footer: str) -> bytes | None:
+def poster_bytes(region: str, d: date, data: dict, brand: str, footer: str, **style) -> bytes | None:
     rec = data["rec"]
     if not rec or not sources.valid_times(rec["times"]):
         return None
@@ -46,6 +46,44 @@ def poster_bytes(region: str, d: date, data: dict, brand: str, footer: str) -> b
     return render(
         d=d, city=region_name(region), times=rec["times"], hijri=rec.get("hijri", ""),
         brand=brand, footer=footer, weather=wd, usd=data["rates"].get("USD"), weather_text=wtext,
+        **style,
+    )
+
+
+_ad_cache: dict[str, bytes] = {}
+
+
+async def _file(bot: Bot, fid: str | None) -> bytes | None:
+    if not fid:
+        return None
+    if fid not in _ad_cache:
+        try:
+            buf = await bot.download(fid)
+            _ad_cache[fid] = buf.read()
+        except Exception as e:
+            log.warning("fayl yuklanmadi: %s", e)
+            return None
+    return _ad_cache[fid]
+
+
+def is_namanganliklar(title: str | None, username: str | None) -> bool:
+    return "namanganliklar" in f"{title or ''} {username or ''}".lower()
+
+
+async def chat_poster(bot: Bot, c, d: date, data: dict) -> bytes | None:
+    """Kanal sozlamalari (rang, reklama, logotip) bilan rasm yasaydi."""
+    ad_img = await _file(bot, c["ad_file"])
+    logo = await _file(bot, c["logo_file"])
+    tint = False
+    if logo is None and is_namanganliklar(c["title"], c["username"]):
+        logo, tint = default_logo(), True
+    username = f"@{c['username']}" if c["username"] else ""
+    return await asyncio.to_thread(
+        poster_bytes, c["region"], d, data, c["title"] or "", username,
+        theme=c["theme"] or "zumrad",
+        ad_text=c["ad_text"] or "",
+        ad_contact=c["ad_contact"] if c["ad_contact"] is not None else username,
+        ad_image=ad_img, logo=logo, logo_tint=tint,
     )
 
 
@@ -157,10 +195,7 @@ async def evening(bot: Bot, only_chat: int | None = None, only_user: int | None 
         chats = [c] if c else []
     for c in chats:
         data = await data_for(c["region"])
-        img = await asyncio.to_thread(
-            poster_bytes, c["region"], d, data, c["title"] or "",
-            f"@{c['username']}" if c["username"] else "",
-        )
+        img = await chat_poster(bot, c, d, data)
         if img is None:
             missing.add(region_name(c["region"]))
             continue

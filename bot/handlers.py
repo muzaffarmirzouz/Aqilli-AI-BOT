@@ -13,6 +13,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from . import db, jobs, prayer_table, sources, texts
 from .config import ADMIN_IDS, PRAYER_KEYS, SEND_AT
+from .poster import DEFAULT_THEME, THEMES, default_logo
 from .regions import DEFAULT_REGION, REGIONS
 from .regions import name as region_name
 
@@ -62,6 +63,7 @@ def today() -> date:
 # =================== /start va hudud ===================
 @pm.message(CommandStart())
 async def start(m: Message):
+    PENDING.pop(m.from_user.id, None)
     db.upsert_user(m.from_user.id, m.from_user.full_name)
     u = db.get_user(m.from_user.id)
     if not u["region"] and not MULTI:
@@ -149,7 +151,8 @@ async def prayer_image(c: CallbackQuery):
     r = user_region(c.from_user.id)
     d = today() + timedelta(days=1 if which == "n" else 0)
     data = await jobs.collect(r, d)
-    img = await asyncio.to_thread(jobs.poster_bytes, r, d, data, "Namoz vaqtlari", "")
+    img = await asyncio.to_thread(jobs.poster_bytes, r, d, data, "Namanganliklar.uz", "",
+                                logo=default_logo(), logo_tint=True)
     if not img:
         return await c.message.answer("⚠️ Bu kun uchun vaqtlar topilmadi.")
     await c.message.answer_photo(BufferedInputFile(img, f"namoz_{d}.jpg"),
@@ -232,9 +235,28 @@ def chat_kb(cid: int):
     kb = InlineKeyboardBuilder()
     if MULTI:
         kb.button(text="📍 Hududni o'zgartirish", callback_data=f"chr:{cid}")
-    kb.button(text="🖼 Hozir sinov post", callback_data=f"cht:{cid}")
-    kb.adjust(1)
+    kb.button(text="🎨 Rasm rangi", callback_data=f"cth:{cid}")
+    kb.button(text="👁 Ko'rinishni ko'rish", callback_data=f"cpv:{cid}")
+    kb.button(text="📣 Reklama matni", callback_data=f"cad:{cid}")
+    kb.button(text="📞 Bog'lanish", callback_data=f"cac:{cid}")
+    kb.button(text="🖼 Reklama rasmi", callback_data=f"cai:{cid}")
+    kb.button(text="🗑 Reklamani tozalash", callback_data=f"cax:{cid}")
+    kb.button(text="🏷 Logotip", callback_data=f"clg:{cid}")
+    kb.button(text="↩️ Logotipni olib tashlash", callback_data=f"clx:{cid}")
+    kb.button(text="📤 Hozir kanalga sinov post", callback_data=f"cht:{cid}")
+    kb.adjust(2, 2, 2, 2, 1)
     return kb.as_markup()
+
+
+def chat_summary(ch) -> str:
+    th = THEMES.get(ch["theme"] or DEFAULT_THEME, THEMES[DEFAULT_THEME])["title"]
+    uname = f"@{ch['username']}" if ch["username"] else "—"
+    contact = ch["ad_contact"] if ch["ad_contact"] is not None else uname
+    ad = "rasm" if ch["ad_file"] else (ch["ad_text"] or "«Reklamangiz uchun joy»")
+    logo = ("o'zingizniki" if ch["logo_file"] else
+            "Namanganliklar.uz" if jobs.is_namanganliklar(ch["title"], ch["username"]) else "yo'q (bosh harflar)")
+    return (f"⚙️ <b>{ch['title']}</b>\n"
+            f"🎨 Rang: {th}\n🏷 Logotip: {logo}\n📣 Reklama: {ad}\n📞 Bog'lanish: {contact or '—'}")
 
 
 @router.callback_query(F.data.startswith("ch:"))
@@ -243,8 +265,7 @@ async def chat_settings(c: CallbackQuery, bot: Bot):
     ch = db.get_chat(cid)
     if not ch or not await is_chat_admin(bot, cid, c.from_user.id):
         return await c.answer("Ruxsat yo'q", show_alert=True)
-    await c.message.answer(f"⚙️ <b>{ch['title']}</b>\n📍 Hudud: {region_name(ch['region'])}",
-                           reply_markup=chat_kb(cid))
+    await c.message.answer(chat_summary(ch), reply_markup=chat_kb(cid))
     await c.answer()
 
 
@@ -311,6 +332,129 @@ async def on_my_member(ev: ChatMemberUpdated, bot: Bot):
         db.set_chat(chat.id, active=0)
 
 
+# =================== Kanal rasmi: rang va reklama ===================
+PENDING: dict[int, tuple[str, int]] = {}  # foydalanuvchi -> (nima kutilyapti, kanal id)
+
+
+async def _guard(c: CallbackQuery, bot: Bot) -> int | None:
+    cid = int(c.data.split(":", 2)[1])
+    if not db.get_chat(cid) or not await is_chat_admin(bot, cid, c.from_user.id):
+        await c.answer("Ruxsat yo'q", show_alert=True)
+        return None
+    return cid
+
+
+async def send_preview(bot: Bot, uid: int, cid: int):
+    ch = db.get_chat(cid)
+    d = today() + timedelta(days=1)
+    data = await jobs.collect(ch["region"], d)
+    img = await jobs.chat_poster(bot, ch, d, data)
+    if not img:
+        return await bot.send_message(uid, "⚠️ Ertangi namoz vaqtlari topilmadi — rasm yasab bo'lmadi.")
+    await bot.send_photo(uid, BufferedInputFile(img, "korinish.jpg"),
+                         caption="👁 Kanalga shunday chiqadi.\n\n" + chat_summary(ch), reply_markup=chat_kb(cid))
+
+
+@router.callback_query(F.data.startswith("cth:"))
+async def theme_menu(c: CallbackQuery, bot: Bot):
+    cid = await _guard(c, bot)
+    if cid is None:
+        return
+    kb = InlineKeyboardBuilder()
+    for k, v in THEMES.items():
+        kb.button(text=v["title"], callback_data=f"cst:{cid}:{k}")
+    kb.adjust(2)
+    await c.message.answer("🎨 Rasm rangini tanlang:", reply_markup=kb.as_markup())
+    await c.answer()
+
+
+@router.callback_query(F.data.startswith("cst:"))
+async def theme_set(c: CallbackQuery, bot: Bot):
+    cid = await _guard(c, bot)
+    if cid is None:
+        return
+    key = c.data.split(":")[2]
+    if key not in THEMES:
+        return await c.answer()
+    db.set_chat(cid, theme=key)
+    await c.answer(f"Rang: {THEMES[key]['title']}")
+    await send_preview(bot, c.from_user.id, cid)
+
+
+@router.callback_query(F.data.startswith("cpv:"))
+async def preview(c: CallbackQuery, bot: Bot):
+    cid = await _guard(c, bot)
+    if cid is None:
+        return
+    await c.answer("Rasm tayyorlanmoqda…")
+    await send_preview(bot, c.from_user.id, cid)
+
+
+_ASK = {
+    "cad": ("ad_text", "📣 Reklama joyiga yoziladigan matnni yuboring (qisqa, 1 qator).\n"
+                       "Masalan: <i>GTA Avtomoyka — 20% chegirma</i>"),
+    "cac": ("ad_contact", "📞 Bog'lanish uchun yozuvni yuboring.\nMasalan: <i>@NamGroup</i> yoki <i>+998 90 123 45 67</i>\n"
+                          "Umuman ko'rsatmaslik uchun <b>-</b> yuboring."),
+    "cai": ("ad_file", "🖼 Reklama rasmini yuboring (gorizontal, taxminan 4:1 nisbatda yaxshi chiqadi)."),
+    "clg": ("logo_file", "🏷 Logotipingizni yuboring.\nEng yaxshisi — shaffof fonli <b>PNG</b>ni <b>fayl</b> qilib yuboring "
+                         "(oddiy rasm qilib yuborilsa, Telegram shaffoflikni yo'qotadi)."),
+}
+
+
+@router.callback_query(F.data.regexp(r"^(cad|cac|cai|clg):"))
+async def ask_input(c: CallbackQuery, bot: Bot):
+    cid = await _guard(c, bot)
+    if cid is None:
+        return
+    kind = c.data.split(":")[0]
+    PENDING[c.from_user.id] = (_ASK[kind][0], cid)
+    await c.message.answer(_ASK[kind][1] + "\n\nBekor qilish: /start")
+    await c.answer()
+
+
+@router.callback_query(F.data.startswith("clx:"))
+async def logo_clear(c: CallbackQuery, bot: Bot):
+    cid = await _guard(c, bot)
+    if cid is None:
+        return
+    db.set_chat(cid, logo_file=None)
+    await c.answer("Logotip olib tashlandi")
+    await send_preview(bot, c.from_user.id, cid)
+
+
+@router.callback_query(F.data.startswith("cax:"))
+async def ad_clear(c: CallbackQuery, bot: Bot):
+    cid = await _guard(c, bot)
+    if cid is None:
+        return
+    db.set_chat(cid, ad_text=None, ad_contact=None, ad_file=None)
+    await c.answer("Reklama tozalandi")
+    await send_preview(bot, c.from_user.id, cid)
+
+
+@pm.message(F.func(lambda m: m.from_user.id in PENDING and not (m.text or "").startswith("/")))
+async def receive_input(m: Message, bot: Bot):
+    field, cid = PENDING[m.from_user.id]
+    if field in ("ad_file", "logo_file"):
+        if m.photo:
+            fid = m.photo[-1].file_id
+        elif m.document and (m.document.mime_type or "").startswith("image/"):
+            fid = m.document.file_id
+        else:
+            return await m.answer("Iltimos, rasm yuboring (PNG/JPG). Bekor qilish: /start")
+        db.set_chat(cid, **{field: fid})
+    else:
+        txt = (m.text or "").strip()
+        if not txt:
+            return await m.answer("Matn yuboring. Bekor qilish: /start")
+        if len(txt) > 60:
+            return await m.answer(f"Juda uzun ({len(txt)} belgi). 60 belgigacha yozing.")
+        db.set_chat(cid, **{field: "" if txt == "-" else txt})
+    PENDING.pop(m.from_user.id, None)
+    await m.answer("✅ Saqlandi.")
+    await send_preview(bot, m.from_user.id, cid)
+
+
 # =================== Admin buyruqlari ===================
 admin = Router()
 admin.message.filter(F.from_user.id.in_(ADMIN_IDS), F.chat.type == ChatType.PRIVATE)
@@ -362,7 +506,8 @@ async def a_test(m: Message, bot: Bot):
     r = user_region(m.from_user.id)
     d = today() + timedelta(days=1)
     data = await jobs.collect(r, d)
-    img = await asyncio.to_thread(jobs.poster_bytes, r, d, data, "Namanganliklar.uz", "@namanganliklar")
+    img = await asyncio.to_thread(jobs.poster_bytes, r, d, data, "Namanganliklar.uz", "",
+                                logo=default_logo(), logo_tint=True)
     if img:
         await m.answer_photo(BufferedInputFile(img, "sinov.jpg"), caption=jobs.channel_caption(r, d, data, None))
     else:
