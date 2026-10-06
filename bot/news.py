@@ -249,9 +249,12 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
         shade = Image.new("RGBA", canvas.size, DEEP + (255,))
         shade.putalpha(grad.resize(canvas.size))
         canvas = Image.alpha_composite(canvas, shade)
-        # yuqori chap: brend kapsulasi
+        # yuqori o'ng: brend kapsulasi (kichikroq)
+        pill_h = 54
+        tmp = Image.new("RGBA", (_s(W), _s(pill_h)), (0, 0, 0, 0))
+        pw = _brand_pill(tmp, 0, 0, pill_h)
         top = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-        _brand_pill(top, 48, 44, 68)
+        top.alpha_composite(tmp.crop((0, 0, _s(pw), _s(pill_h))), (_s(W - 44 - pw), _s(40)))
         sh = top.split()[3].filter(ImageFilter.GaussianBlur(_s(10))).point(lambda v: int(v * 0.35))
         shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 255))
         shadow.putalpha(sh)
