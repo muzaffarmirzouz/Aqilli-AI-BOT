@@ -1,6 +1,7 @@
 """Ma'lumot manbalari: namoz vaqtlari, ob-havo, valyuta kursi."""
 import asyncio
 import logging
+import os
 import re
 import time
 from datetime import date, timedelta
@@ -101,21 +102,15 @@ async def fetch_day(region: str, d: date) -> bool:
 
 
 async def get_prayer(region: str, d: date) -> dict | None:
-    """Avval bazadan, bo'lmasa internetdan oladi. Topilmasa None."""
+    """Faqat bazadagi jadvaldan (prayer_data/*.csv yoki /oylik orqali kiritilgan). Topilmasa None.
+    PRAYER_ONLINE=1 bo'lsa, jadvalda yo'q kunlar islomapi.uz dan olinadi."""
     rec = db.load_prayer(region, d.isoformat())
-    if rec:
+    if rec or os.getenv("PRAYER_ONLINE", "0") != "1":
         return rec
     try:
         await fetch_month(region, d.year, d.month)
     except Exception as e:
         log.warning("oylik olinmadi %s %s: %s", region, d, e)
-    rec = db.load_prayer(region, d.isoformat())
-    if rec:
-        return rec
-    try:
-        await fetch_day(region, d)
-    except Exception as e:
-        log.warning("kunlik olinmadi %s %s: %s", region, d, e)
     return db.load_prayer(region, d.isoformat())
 
 

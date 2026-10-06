@@ -9,12 +9,14 @@ from aiogram.types import BotCommand
 from bot.config import BOT_TOKEN
 from bot.handlers import router
 from bot.jobs import scheduler
+from bot.prayer_table import load_dir
 
 
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN o'rnatilmagan")
+    load_dir("prayer_data")  # oylik jadvallarni bazaga yuklash
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp.include_router(router)
@@ -23,7 +25,6 @@ async def main():
         BotCommand(command="namoz", description="Namoz vaqtlari"),
         BotCommand(command="obhavo", description="Ob-havo"),
         BotCommand(command="kurs", description="Valyuta kursi"),
-        BotCommand(command="hudud", description="Hududni o'zgartirish"),
         BotCommand(command="kanal", description="Kanalimga ulash"),
     ])
     task = asyncio.create_task(scheduler(bot))

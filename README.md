@@ -11,24 +11,24 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
 ## Ma'lumot manbalari
 | Ma'lumot | Manba |
 |---|---|
-| Namoz vaqtlari | islomapi.uz (islom.uz — O'zbekiston musulmonlari idorasi taqvimi). Oylik taqvim bazaga saqlanadi |
+| Namoz vaqtlari | **Faqat Namangan, oylik jadvaldan** (islom.uz). `prayer_data/namangan_2026-10.csv` — oktyabr 2026. Internetdan olinmaydi |
 | Ob-havo | api.open-meteo.com (kalit kerak emas) |
 | Valyuta | cbu.uz (Markaziy bank rasmiy kursi) |
 
-### Xatoga yo'l qo'ymaslik uchun himoya
-1. Har bir kunning 6 vaqti tekshiriladi: format to'g'ri va ketma-ket o'sib borishi shart. Aks holda qabul qilinmaydi.
-2. **20:30 da** (yuborishdan 30 daqiqa oldin) ertangi vaqtlar tekshiriladi. Biror hudud topilmasa, adminlarga xabar keladi.
-3. Vaqt topilmagan hudud kanallariga **rasm umuman chiqmaydi** (noto'g'ri rasm chiqmasligi uchun).
-4. Admin istalgan kunni qo'lda kiritishi mumkin — qo'lda kiritilgan vaqt avtomatikdan ustun turadi:
-   `/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:02 17:50 19:04`
-
-## Admin buyruqlari (`/admin`)
-- `/stat` — statistika
-- `/tekshir namangan 2026-10-07` — vaqtlar va manbasi (islomapi yoki manual)
-- `/vaqt ...` — vaqtni qo'lda kiritish/tuzatish
-- `/sinov` — kechki xabar va rasmni faqat o'zingizga yuboradi
-- `/hozir_yubor` — kechki yuborishni hozir hammaga ishga tushiradi
-- `/xabar` — biror xabarga reply qilib yozing → hamma foydalanuvchiga nusxa ketadi
+## Har oy jadvalni yangilash
+- Jadval tugashidan **5 kun oldin** har kuni 20:30 da adminlarga «Namoz vaqtlarini yangilang!» xabari keladi.
+- Ertangi kun vaqti umuman bo'lmasa — 🚨 ogohlantirish keladi va kanallarga rasm **chiqmaydi** (noto'g'ri rasm chiqmasligi uchun).
+- Yangi oyni botning o'ziga yuborasiz (qayta deploy kerak emas):
+  ```
+  /oylik 2026-11
+  1 bomdod quyosh peshin asr shom xufton
+  2 ...
+  ```
+  Har qatorda: kun, bomdod, quyosh, peshin, asr, shom, xufton. islom.uz jadvalidan to'g'ridan-to'g'ri
+  nusxa olsangiz ham bo'ladi — hafta kuni, ishroq va tahajjud ustunlari o'zi tashlab yuboriladi.
+  Bot har qatorni tekshiradi va noto'g'ri qatorlarni ko'rsatadi.
+- Bitta kunni tuzatish: `/vaqt namangan 2026-10-07 04:58 06:16 12:01 16:01 17:50 19:04`
+- Muqobil: `prayer_data/namangan_YYYY-MM.csv` fayl qo'shib deploy qilish.
 
 ## Railway'ga joylash
 1. Fayllarni yangi GitHub repoga yuklang.
@@ -45,6 +45,7 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
 |---|---|---|
 | `SEND_AT` | `21:00` | Kechki yuborish vaqti (Toshkent) |
 | `PRECHECK_MIN` | `30` | Necha daqiqa oldin tekshirish |
+| `REMIND_DAYS` | `5` | Jadval tugashidan necha kun oldin eslatish |
 | `TAKBIR` | `40,0,10,10,10,10` | Bomdod, quyosh, peshin, asr, shom, xufton. `0` — ko'rsatilmaydi |
 | `AYAH_TEXT`, `AYAH_SOURCE` | Niso, 103 | Posterdagi oyat |
 

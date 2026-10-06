@@ -7,8 +7,8 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import BufferedInputFile
 
-from . import db, sources, texts
-from .config import ADMIN_IDS, PRECHECK_MIN, SEND_AT, TZ
+from . import db, prayer_table, sources, texts
+from .config import ADMIN_IDS, PRECHECK_MIN, REMIND_DAYS, SEND_AT, TZ
 from .poster import render
 from .regions import name as region_name
 
@@ -90,8 +90,9 @@ async def notify_admins(bot: Bot, text: str):
 
 
 async def precheck(bot: Bot):
-    """Yuborishdan oldin ertangi vaqtlarni tekshiradi; muammo bo'lsa adminlarga xabar beradi."""
-    d = now().date() + timedelta(days=1)
+    """Yuborishdan oldin: ertangi vaqtlar bormi va jadval tugashiga necha kun qolgan."""
+    today = now().date()
+    d = today + timedelta(days=1)
     bad = []
     for r in sorted(db.used_regions()):
         rec = await sources.get_prayer(r, d)
@@ -100,10 +101,27 @@ async def precheck(bot: Bot):
     if bad:
         await notify_admins(
             bot,
-            f"⚠️ {d.strftime('%d.%m.%Y')} uchun namoz vaqtlari topilmadi: {', '.join(bad)}.\n"
-            f"Qo'lda kiriting: /vaqt namangan {d.isoformat()} 04:58 06:16 12:35 16:02 17:50 19:04\n"
-            f"Aks holda bu hududlar kanallariga rasm chiqmaydi.",
+            f"🚨 Ertaga ({d.strftime('%d.%m.%Y')}) uchun namoz vaqtlari yo'q: {', '.join(bad)}.\n"
+            "Bugun kechqurun kanallarga rasm CHIQMAYDI. Yangi oy jadvalini /oylik bilan kiriting.",
         )
+
+    # Oy (jadval) tugashi haqida eslatma
+    for r in sorted(db.used_regions()):
+        last = prayer_table.last_date(r)
+        if not last:
+            continue
+        left = (last - today).days
+        if 0 <= left <= REMIND_DAYS:
+            nxt = last + timedelta(days=1)
+            await notify_admins(
+                bot,
+                f"📅 <b>Namoz vaqtlarini yangilang!</b>\n"
+                f"{region_name(r)} jadvali {last.strftime('%d.%m.%Y')} gacha kiritilgan "
+                f"({'bugun oxirgi kun' if left == 0 else f'{left} kun qoldi'}).\n\n"
+                f"{texts.MONTHS[nxt.month - 1].capitalize()} oyi jadvalini yuboring:\n"
+                f"<code>/oylik {nxt.year}-{nxt.month:02d}\n1 bomdod quyosh peshin asr shom xufton\n...</code>\n"
+                "(islom.uz jadvalidan nusxa olsangiz ham bo'ladi)",
+            )
 
 
 async def evening(bot: Bot, only_chat: int | None = None, only_user: int | None = None):

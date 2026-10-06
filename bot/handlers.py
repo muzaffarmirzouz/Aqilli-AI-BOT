@@ -1,5 +1,7 @@
 import asyncio
+import calendar
 import logging
+import re
 from datetime import date, timedelta
 
 from aiogram import Bot, F, Router
@@ -9,7 +11,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated,
                            KeyboardButton, Message, ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from . import db, jobs, sources, texts
+from . import db, jobs, prayer_table, sources, texts
 from .config import ADMIN_IDS, PRAYER_KEYS, SEND_AT
 from .regions import DEFAULT_REGION, REGIONS
 from .regions import name as region_name
@@ -24,12 +26,16 @@ B_PRAYER, B_WEATHER, B_RATES = "🕌 Namoz vaqtlari", "🌤 Ob-havo", "💵 Valy
 B_REGION, B_NOTIFY, B_CHANNEL = "📍 Hududni o'zgartirish", "🔔 Kechki xabar", "📢 Kanalimga ulash"
 
 
+MULTI = len(REGIONS) > 1  # bitta hudud bo'lsa, hudud tanlash ko'rsatilmaydi
+
+
 def menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=B_PRAYER)],
             [KeyboardButton(text=B_WEATHER), KeyboardButton(text=B_RATES)],
-            [KeyboardButton(text=B_REGION), KeyboardButton(text=B_NOTIFY)],
+            [KeyboardButton(text=B_REGION), KeyboardButton(text=B_NOTIFY)] if MULTI
+            else [KeyboardButton(text=B_NOTIFY)],
             [KeyboardButton(text=B_CHANNEL)],
         ],
         resize_keyboard=True,
@@ -58,6 +64,16 @@ def today() -> date:
 async def start(m: Message):
     db.upsert_user(m.from_user.id, m.from_user.full_name)
     u = db.get_user(m.from_user.id)
+    if not u["region"] and not MULTI:
+        db.set_user(m.from_user.id, region=DEFAULT_REGION)
+        await m.answer(
+            f"Assalomu alaykum, {m.from_user.first_name}! 👋\n\n"
+            f"Men {region_name(DEFAULT_REGION)} vaqti bilan namoz vaqtlari, ob-havo va valyuta kursini "
+            f"ko'rsataman. Har kuni soat {SEND_AT} da ertangi kun ma'lumotlarini yuboraman.\n\n"
+            "Kerakli bo'limni tanlang 👇",
+            reply_markup=menu(),
+        )
+        return
     if not u["region"]:
         await m.answer(
             f"Assalomu alaykum, {m.from_user.first_name}! 👋\n\n"
@@ -67,7 +83,7 @@ async def start(m: Message):
             reply_markup=region_kb("reg"),
         )
         return
-    await m.answer(f"📍 Hududingiz: <b>{region_name(u['region'])}</b>\nKerakli bo'limni tanlang 👇",
+    await m.answer(f"📍 {region_name(u['region'])} vaqti bilan.\nKerakli bo'limni tanlang 👇",
                    reply_markup=menu())
 
 
@@ -214,7 +230,8 @@ async def is_chat_admin(bot: Bot, chat_id: int, uid: int) -> bool:
 
 def chat_kb(cid: int):
     kb = InlineKeyboardBuilder()
-    kb.button(text="📍 Hududni o'zgartirish", callback_data=f"chr:{cid}")
+    if MULTI:
+        kb.button(text="📍 Hududni o'zgartirish", callback_data=f"chr:{cid}")
     kb.button(text="🖼 Hozir sinov post", callback_data=f"cht:{cid}")
     kb.adjust(1)
     return kb.as_markup()
@@ -274,15 +291,16 @@ async def on_my_member(ev: ChatMemberUpdated, bot: Bot):
     st = ev.new_chat_member.status
     if st == ChatMemberStatus.ADMINISTRATOR:
         existing = db.get_chat(chat.id)
-        region = existing["region"] if existing else user_region(ev.from_user.id)
+        region = existing["region"] if existing and existing["region"] in REGIONS else user_region(ev.from_user.id)
         db.upsert_chat(chat.id, chat.title or "", chat.username, region, ev.from_user.id)
         try:
             await bot.send_message(
                 ev.from_user.id,
                 f"✅ Bot <b>{chat.title}</b> ga ulandi.\n"
                 f"Har kuni soat {SEND_AT} da ertangi namoz vaqtlari rasmi chiqadi.\n"
-                f"📍 Hudud: <b>{region_name(region)}</b>. O'zgartirish uchun tanlang:",
-                reply_markup=region_kb(f"creg:{chat.id}"),
+                f"📍 Hudud: <b>{region_name(region)}</b>."
+                + (" O'zgartirish uchun tanlang:" if MULTI else "\nSinab ko'rish uchun 👇"),
+                reply_markup=region_kb(f"creg:{chat.id}") if MULTI else chat_kb(chat.id),
             )
         except Exception:
             pass  # admin botga hali /start bosmagan bo'lishi mumkin
@@ -308,7 +326,7 @@ async def a_stats(m: Message):
 
 @admin.message(Command("vaqt"))
 async def a_set_time(m: Message, command: CommandObject):
-    """/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:02 17:50 19:04"""
+    """/vaqt namangan 2026-10-07 04:58 06:16 12:01 16:01 17:50 19:04"""
     parts = (command.args or "").split()
     try:
         region, ds, *ts = parts
@@ -317,7 +335,7 @@ async def a_set_time(m: Message, command: CommandObject):
         times = {k: sources._norm_time(v) for k, v in zip(PRAYER_KEYS, ts)}
         assert sources.valid_times(times)
     except Exception:
-        return await m.answer("Format: <code>/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:02 17:50 19:04</code>\n"
+        return await m.answer("Format: <code>/vaqt namangan 2026-10-07 04:58 06:16 12:01 16:01 17:50 19:04</code>\n"
                               "Vaqtlar tartib bilan: bomdod, quyosh, peshin, asr, shom, xufton.\n"
                               f"Hududlar: {', '.join(REGIONS)}")
     old = db.load_prayer(region, d.isoformat()) or {}
@@ -374,13 +392,46 @@ async def a_broadcast(m: Message, bot: Bot):
     await m.answer(f"✅ {ok} kishiga yuborildi.")
 
 
+@admin.message(Command("oylik"))
+async def a_month(m: Message, command: CommandObject):
+    """/oylik 2026-11  + keyingi qatorlarda jadval (islom.uz dan nusxa olsa ham bo'ladi)."""
+    args = (command.args or "").strip()
+    first, _, body = args.partition("\n")
+    mt = re.match(r"(\d{4})-(\d{1,2})$", first.strip())
+    if not mt or not body.strip():
+        return await m.answer(
+            "Format (bitta xabarda):\n<code>/oylik 2026-11\n"
+            "1 bomdod quyosh peshin asr shom xufton\n2 ...\n...</code>\n\n"
+            "Har qatorda: kun, bomdod, quyosh, peshin, asr, shom, xufton.\n"
+            "islom.uz jadvalidan to'g'ridan-to'g'ri nusxa olsangiz ham bo'ladi "
+            "(ishroq va tahajjud ustunlari o'zi tashlab yuboriladi)."
+        )
+    y, mo = int(mt.group(1)), int(mt.group(2))
+    days, errs = prayer_table.parse_text(body, y, mo)
+    if not days:
+        return await m.answer("⚠️ Birorta ham to'g'ri qator topilmadi.\n" + "\n".join(errs[:10]))
+    n = prayer_table.save_month(DEFAULT_REGION, y, mo, days, "manual")
+    total = calendar.monthrange(y, mo)[1]
+    missing = [str(d) for d in range(1, total + 1) if d not in days]
+    msg = f"✅ {region_name(DEFAULT_REGION)}: {y}-{mo:02d} uchun {n} kun saqlandi."
+    if missing:
+        msg += f"\n⚠️ Kiritilmagan kunlar: {', '.join(missing)}"
+    if errs:
+        msg += "\n⚠️ Xatolar:\n" + "\n".join(errs[:10])
+    d1 = min(days)
+    msg += "\n\nTekshirish uchun birinchi kun:\n" + texts.prayer_block(
+        DEFAULT_REGION, date(y, mo, d1), {"times": days[d1], "hijri": ""})
+    await m.answer(msg)
+
+
 @admin.message(Command("admin"))
 async def a_help(m: Message):
     await m.answer(
         "<b>Admin buyruqlari</b>\n"
         "/stat — statistika\n"
         "/tekshir namangan 2026-10-07 — vaqt va manbasini ko'rish\n"
-        "/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:02 17:50 19:04 — vaqtni qo'lda kiritish\n"
+        "/oylik 2026-11 + jadval — yangi oy vaqtlarini kiritish\n"
+        "/vaqt namangan 2026-10-07 04:58 06:16 12:01 16:01 17:50 19:04 — vaqtni qo'lda kiritish\n"
         "/sinov — kechki xabar va rasmni o'zingizga yuborish\n"
         "/hozir_yubor — kechki yuborishni hozir hammaga ishga tushirish\n"
         "/xabar — (reply qilib) hammaga reklama/e'lon"
