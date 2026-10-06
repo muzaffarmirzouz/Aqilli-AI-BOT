@@ -3,7 +3,7 @@ import os
 import sqlite3
 import time
 
-from .config import DB_PATH
+from .config import DB_PATH, PESHIN_FIXED
 from .regions import DEFAULT_REGION
 
 os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
@@ -110,7 +110,14 @@ def load_prayer(region: str, date: str):
         return None
     d = json.loads(row["data"])
     d["source"] = row["source"]
-    return d
+    return apply_fixed(d)
+
+
+def apply_fixed(rec: dict) -> dict:
+    """Peshin uchun doimiy vaqtni qo'llaydi (PESHIN_FIXED)."""
+    if PESHIN_FIXED and rec.get("times"):
+        rec["times"] = {**rec["times"], "peshin": PESHIN_FIXED}
+    return rec
 
 
 def stats():

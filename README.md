@@ -36,7 +36,8 @@ Har o'zgarishdan keyin bot yangi ko'rinishni sizga yuboradi.
   Har qatorda: kun, bomdod, quyosh, peshin, asr, shom, xufton. islom.uz jadvalidan to'g'ridan-to'g'ri
   nusxa olsangiz ham bo'ladi — hafta kuni, ishroq va tahajjud ustunlari o'zi tashlab yuboriladi.
   Bot har qatorni tekshiradi va noto'g'ri qatorlarni ko'rsatadi.
-- Bitta kunni tuzatish: `/vaqt namangan 2026-10-07 04:58 06:16 12:01 16:01 17:50 19:04`
+  Peshin ustunida nima bo'lishidan qat'i nazar, peshin har doim **12:35** (takbir +10) chiqadi.
+- Bitta kunni tuzatish: `/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:01 17:50 19:04`
 - Muqobil: `prayer_data/namangan_YYYY-MM.csv` fayl qo'shib deploy qilish.
 
 ## Railway'ga joylash
@@ -55,7 +56,8 @@ Har o'zgarishdan keyin bot yangi ko'rinishni sizga yuboradi.
 | `SEND_AT` | `21:00` | Kechki yuborish vaqti (Toshkent) |
 | `PRECHECK_MIN` | `30` | Necha daqiqa oldin tekshirish |
 | `REMIND_DAYS` | `5` | Jadval tugashidan necha kun oldin eslatish |
-| `TAKBIR` | `40,0,10,10,10,10` | Bomdod, quyosh, peshin, asr, shom, xufton. `0` — ko'rsatilmaydi |
+| `PESHIN_FIXED` | `12:35` | Peshin har kuni shu vaqtda (jadvaldagi peshin o'rniga). Bo'sh qoldirilsa — jadvaldagi vaqt |
+| `TAKBIR` | `40,0,10,10,0,10` | Bomdod, quyosh, peshin, asr, shom, xufton. `0` — ko'rsatilmaydi |
 
 ## Lokal ishga tushirish
 ```bash

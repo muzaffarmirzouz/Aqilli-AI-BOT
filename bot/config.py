@@ -13,7 +13,7 @@ PRECHECK_MIN = int(os.getenv("PRECHECK_MIN", "30"))
 REMIND_DAYS = int(os.getenv("REMIND_DAYS", "5"))
 
 # Takbir daqiqalari: bomdod, quyosh, peshin, asr, shom, xufton. 0 = ko'rsatilmaydi.
-TAKBIR = [int(x) for x in os.getenv("TAKBIR", "40,0,10,10,10,10").split(",")]
+TAKBIR = [int(x) for x in os.getenv("TAKBIR", "40,0,10,10,0,10").split(",")]
 
 # Posterdagi oyat
 AYAH_TEXT = os.getenv(
@@ -29,3 +29,6 @@ PRAYER_KEYS = ["bomdod", "quyosh", "peshin", "asr", "shom", "xufton"]
 # Barcha rasmlardagi brend nomi va reklama joyidagi standart kontakt
 BRAND = os.getenv("BRAND", "Namanganliklar.uz")
 AD_CONTACT = os.getenv("AD_CONTACT", "@NamGroup")
+
+# Peshin vaqti har kuni bir xil (masjid jamoat vaqti). Bo'sh qoldirilsa — jadvaldagi vaqt ishlatiladi.
+PESHIN_FIXED = os.getenv("PESHIN_FIXED", "12:35").strip()

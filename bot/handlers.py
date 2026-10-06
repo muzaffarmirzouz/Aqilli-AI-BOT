@@ -479,7 +479,7 @@ async def a_stats(m: Message):
 
 @admin.message(Command("vaqt"))
 async def a_set_time(m: Message, command: CommandObject):
-    """/vaqt namangan 2026-10-07 04:58 06:16 12:01 16:01 17:50 19:04"""
+    """/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:01 17:50 19:04"""
     parts = (command.args or "").split()
     try:
         region, ds, *ts = parts
@@ -488,7 +488,7 @@ async def a_set_time(m: Message, command: CommandObject):
         times = {k: sources._norm_time(v) for k, v in zip(PRAYER_KEYS, ts)}
         assert sources.valid_times(times)
     except Exception:
-        return await m.answer("Format: <code>/vaqt namangan 2026-10-07 04:58 06:16 12:01 16:01 17:50 19:04</code>\n"
+        return await m.answer("Format: <code>/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:01 17:50 19:04</code>\n"
                               "Vaqtlar tartib bilan: bomdod, quyosh, peshin, asr, shom, xufton.\n"
                               f"Hududlar: {', '.join(REGIONS)}")
     old = db.load_prayer(region, d.isoformat()) or {}
@@ -573,7 +573,7 @@ async def a_month(m: Message, command: CommandObject):
         msg += "\n⚠️ Xatolar:\n" + "\n".join(errs[:10])
     d1 = min(days)
     msg += "\n\nTekshirish uchun birinchi kun:\n" + texts.prayer_block(
-        DEFAULT_REGION, date(y, mo, d1), {"times": days[d1], "hijri": ""})
+        DEFAULT_REGION, date(y, mo, d1), db.apply_fixed({"times": days[d1], "hijri": ""}))
     await m.answer(msg)
 
 
@@ -663,7 +663,7 @@ async def a_help(m: Message):
         "/stat — statistika\n"
         "/tekshir namangan 2026-10-07 — vaqt va manbasini ko'rish\n"
         "/oylik 2026-11 + jadval — yangi oy vaqtlarini kiritish\n"
-        "/vaqt namangan 2026-10-07 04:58 06:16 12:01 16:01 17:50 19:04 — vaqtni qo'lda kiritish\n"
+        "/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:01 17:50 19:04 — vaqtni qo'lda kiritish\n"
         "/sinov — kechki xabar va rasmni o'zingizga yuborish\n"
         "/hozir_yubor — kechki yuborishni hozir hammaga ishga tushirish\n"
         "/xabar — (reply qilib) hammaga reklama/e'lon"
