@@ -7,7 +7,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import BufferedInputFile, InputMediaPhoto
 
-from . import db, prayer_table, sources, texts
+from . import db, prayer_table, sources, subscribe, texts
 from .config import AD_CONTACT, ADMIN_IDS, BRAND, PRECHECK_MIN, REMIND_DAYS, SEND_AT, TZ
 from .poster import default_logo, render, render_rates, render_weather
 from .regions import name as region_name
@@ -270,6 +270,8 @@ async def evening(bot: Bot, only_chat: int | None = None, only_user: int | None 
     ustyle = bot_style()
     file_ids: dict[str, list] = {}  # hudud -> Telegram'ga yuklangan rasmlar (qayta yuklamaslik uchun)
     for u in users:
+        if not only_user and not await subscribe.is_subscribed(bot, u["id"]):
+            continue  # majburiy obuna kanalidan chiqib ketgan
         data = await data_for(u["region"])
         cap = user_caption(u["region"], d, data)
         if u["region"] not in file_ids:

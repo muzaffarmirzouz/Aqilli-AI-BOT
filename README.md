@@ -9,6 +9,13 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
 - 📢 **Kanal/guruhga admin qilinsa** — har kuni 21:00 da namoz vaqtlari rasmi chiqadi. Ob-havo va dollar kursi rasmlari faqat kanal panelida yoqilsa qo'shiladi (standart: o'chiq).
   Rasmda har doim Namanganliklar.uz nomi va logosi bo'ladi (kanal nomi yozilmaydi).
 
+## Majburiy obuna
+Bot faqat **@Namanganliklar_uz** kanaliga obuna bo'lganlar uchun ishlaydi (adminlar tekshirilmaydi).
+- ⚠️ Bot **@Namanganliklar_uz kanalida admin** bo'lishi shart — aks holda obunani tekshira olmaydi
+  (bu holda bot hammaga ochiq ishlaydi va adminlarga ogohlantirish keladi).
+- 21:00 dagi xabar ham faqat obunachilarga boradi.
+- Kanalni o'zgartirish: `REQUIRED_CHANNEL=@boshqa_kanal`; o'chirish: `REQUIRED_CHANNEL=` (bo'sh).
+
 ## Kanal rasmini sozlash
 Botda «📢 Kanalimga ulash» → kanal nomi (⚙️) bosiladi:
 - 🎨 **Rasm rangi** — 6 xil: Zumrad, Tungi ko'k, Bordo, Qahva, Qora, Oq-oltin

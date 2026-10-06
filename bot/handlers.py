@@ -11,8 +11,8 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated,
                            KeyboardButton, Message, ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from . import db, jobs, prayer_table, sources, texts
-from .config import AD_CONTACT, ADMIN_IDS, BRAND, PRAYER_KEYS, SEND_AT
+from . import db, jobs, prayer_table, sources, subscribe, texts
+from .config import AD_CONTACT, ADMIN_IDS, BRAND, REQUIRED_CHANNEL, PRAYER_KEYS, SEND_AT
 from .poster import DEFAULT_THEME, THEMES, default_logo
 from .regions import DEFAULT_REGION, REGIONS
 from .regions import name as region_name
@@ -74,6 +74,20 @@ def today() -> date:
     return jobs.now().date()
 
 
+def welcome_text(first_name: str) -> str:
+    return (
+        f"Assalomu alaykum, {first_name}! 👋\n\n"
+        "🕌 <b>Namanganliklar.uz — Namoz vaqtlari boti</b>\n\n"
+        "Bot nimalar qiladi:\n"
+        f"• 🕌 {region_name(DEFAULT_REGION)} namoz vaqtlari — bugun va ertaga, takbir bilan\n"
+        "• 🌤 Ob-havo — hozir va keyingi kunlar\n"
+        "• 💵 Valyuta kursi — Markaziy bank kursi\n"
+        f"• 🔔 Har kuni soat {SEND_AT} da ertangi kun ma'lumotlarini o'zi yuboradi\n"
+        "• 📢 Kanalingizga admin qilsangiz, har kuni namoz vaqtlari rasmini o'zi joylaydi\n\n"
+        "Kerakli bo'limni tanlang 👇"
+    )
+
+
 # =================== /start va hudud ===================
 @pm.message(CommandStart())
 async def start(m: Message):
@@ -82,13 +96,7 @@ async def start(m: Message):
     u = db.get_user(m.from_user.id)
     if not u["region"] and not MULTI:
         db.set_user(m.from_user.id, region=DEFAULT_REGION)
-        await m.answer(
-            f"Assalomu alaykum, {m.from_user.first_name}! 👋\n\n"
-            f"Men {region_name(DEFAULT_REGION)} vaqti bilan namoz vaqtlari, ob-havo va valyuta kursini "
-            f"ko'rsataman. Har kuni soat {SEND_AT} da ertangi kun ma'lumotlarini yuboraman.\n\n"
-            "Kerakli bo'limni tanlang 👇",
-            reply_markup=menu(m.from_user.id),
-        )
+        await m.answer(welcome_text(m.from_user.first_name), reply_markup=menu(m.from_user.id))
         return
     if not u["region"]:
         await m.answer(
@@ -99,8 +107,23 @@ async def start(m: Message):
             reply_markup=region_kb("reg"),
         )
         return
-    await m.answer(f"📍 {region_name(u['region'])} vaqti bilan.\nKerakli bo'limni tanlang 👇",
-                   reply_markup=menu(m.from_user.id))
+    await m.answer(welcome_text(m.from_user.first_name), reply_markup=menu(m.from_user.id))
+
+
+@router.callback_query(F.data == subscribe.CHECK_CB)
+async def sub_check(c: CallbackQuery, bot: Bot):
+    if not await subscribe.is_subscribed(bot, c.from_user.id, use_cache=False):
+        return await c.answer(f"Siz hali {REQUIRED_CHANNEL} kanaliga obuna bo'lmagansiz", show_alert=True)
+    await c.answer("Rahmat! ✅")
+    try:
+        await c.message.delete()
+    except Exception:
+        pass
+    db.upsert_user(c.from_user.id, c.from_user.full_name)
+    u = db.get_user(c.from_user.id)
+    if not u["region"]:
+        db.set_user(c.from_user.id, region=DEFAULT_REGION)
+    await c.message.answer(welcome_text(c.from_user.first_name), reply_markup=menu(c.from_user.id))
 
 
 @pm.message(F.text == B_REGION)

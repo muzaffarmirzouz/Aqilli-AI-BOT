@@ -10,6 +10,7 @@ from bot.config import BOT_TOKEN
 from bot.handlers import router
 from bot.jobs import scheduler
 from bot.prayer_table import load_dir
+from bot.subscribe import SubscribeMiddleware
 
 
 async def main():
@@ -19,6 +20,8 @@ async def main():
     load_dir("prayer_data")  # oylik jadvallarni bazaga yuklash
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
+    dp.message.outer_middleware(SubscribeMiddleware())
+    dp.callback_query.outer_middleware(SubscribeMiddleware())
     dp.include_router(router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Bosh menyu"),

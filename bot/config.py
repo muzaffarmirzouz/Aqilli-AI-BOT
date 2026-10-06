@@ -32,3 +32,6 @@ AD_CONTACT = os.getenv("AD_CONTACT", "@NamGroup")
 
 # Peshin vaqti har kuni bir xil (masjid jamoat vaqti). Bo'sh qoldirilsa — jadvaldagi vaqt ishlatiladi.
 PESHIN_FIXED = os.getenv("PESHIN_FIXED", "12:35").strip()
+
+# Majburiy obuna kanali (bo'sh qoldirilsa — o'chiq). Bot shu kanalda ADMIN bo'lishi shart.
+REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@Namanganliklar_uz").strip()
