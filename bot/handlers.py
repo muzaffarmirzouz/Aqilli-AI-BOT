@@ -692,7 +692,7 @@ async def a_panel_cb(c: CallbackQuery, bot: Bot):
             "shablonidagi tayyor rasmni qaytaraman.\n\n"
             "• Urg'u (sariq rang): <code>*so'z*</code>\n"
             "• Teg (qizil yorliq): <code>[Tezkor] Sarlavha</code>\n"
-            "• Tayyor rasm ostidagi tugmalar: uslub (to'liq / panel), format (1:1 / 4:5), matnni o'zgartirish.")
+            "• Tayyor rasm ostidagi tugmalar: format (1:1 / 4:5), matnni o'zgartirish, kanalga yuborish.")
     elif act == "stat":
         st = db.stats()
         await c.message.answer(f"👥 Foydalanuvchilar: {st['users']} (faol {st['active']}, kechki xabar {st['notify']})\n"
@@ -728,7 +728,7 @@ async def a_set_bot_theme(c: CallbackQuery, bot: Bot):
 # Har bir tayyor rasm (xabar) o'z holatiga ega: tugmalar aynan o'sha rasm bilan ishlaydi.
 NEWS_MSG: dict[tuple[int, int], dict] = {}   # (admin, xabar_id) -> {src, file_id, text, style, fmt, tag, link}
 NEWS_WAIT: dict[int, dict] = {}              # sarlavha kutilayotgan admin -> holat
-STYLE_NAMES = {"full": "To'liq rasm", "panel": "Panel (klassik)"}
+STYLE_NAMES = {"full": "To'liq rasm"}  # klassik (panel) uslub olib tashlandi
 FMT_NAMES = {"kvadrat": "Kvadrat 1:1", "vertikal": "Vertikal 4:5"}
 _URL_RE = re.compile(r"https?://\S+")
 
@@ -757,13 +757,11 @@ def news_caption(text: str, link: str = "") -> str:
 
 def news_kb(st: dict):
     kb = InlineKeyboardBuilder()
-    other_style = "panel" if st["style"] == "full" else "full"
     other_fmt = "vertikal" if st["fmt"] == "kvadrat" else "kvadrat"
-    kb.button(text=f"🎨 {STYLE_NAMES[other_style]}", callback_data=f"nw:style:{other_style}")
     kb.button(text=f"📐 {FMT_NAMES[other_fmt]}", callback_data=f"nw:fmt:{other_fmt}")
     kb.button(text="✏️ Matnni o'zgartirish", callback_data="nw:text")
     kb.button(text="📤 Kanalga yuborish", callback_data="nwpub")
-    kb.adjust(2, 1, 1)
+    kb.adjust(2, 1)
     return kb.as_markup()
 
 
@@ -801,6 +799,7 @@ async def _src_bytes(bot: Bot, st: dict) -> bytes:
 
 async def _send_news(bot: Bot, uid: int, st: dict, intro: str = ""):
     """Rasmni tayyorlab adminga yuboradi va shu xabarga holatni bog'laydi."""
+    st["style"] = "full"  # yagona uslub
     src = await _src_bytes(bot, st)
     img = await asyncio.to_thread(news.render_news, src, st["text"], st["style"], st["fmt"],
                                   today(), st.get("tag", ""))
@@ -817,16 +816,14 @@ async def _send_news(bot: Bot, uid: int, st: dict, intro: str = ""):
 
 def _pref(uid: int) -> tuple[str, str]:
     v = (db.kv_get(f"news_pref:{uid}") or "full|kvadrat").split("|")
-    return (v[0] if v[0] in STYLE_NAMES else "full", v[1] if len(v) > 1 and v[1] in FMT_NAMES else "kvadrat")
+    return ("full", v[1] if len(v) > 1 and v[1] in FMT_NAMES else "kvadrat")
 
 
 async def offer_site_article(bot: Bot, title: str, link: str, image: bytes):
     """Saytda yangi maqola chiqdi — har bir adminga tayyor rasmni yuboradi (kanalga emas)."""
     for uid in ADMIN_IDS:
         _, fmt = _pref(uid)
-        # saytdan kelganlar uchun oxirgi tanlangan uslub (birinchi marta — panel)
-        style = db.kv_get(f"site_style:{uid}") or "panel"
-        style = style if style in STYLE_NAMES else "panel"
+        style = "full"
         st = {"site": True, "src": image, "file_id": None, "text": title, "style": style, "fmt": fmt, "tag": "", "link": link}
         try:
             await _send_news(bot, uid, st, intro="🆕 <b>Saytda yangi maqola</b>")
@@ -874,8 +871,6 @@ async def news_cb(c: CallbackQuery, bot: Bot):
         NEWS_WAIT[c.from_user.id] = st
         await c.answer()
         return await c.message.answer("✏️ Yangi sarlavhani yozing (havola o'zgarmaydi):")
-    if st.get("site") and parts[1] == "style":
-        db.kv_set(f"site_style:{c.from_user.id}", parts[2])  # keyingi maqolalar ham shu uslubda keladi
     await c.answer("Tayyorlanmoqda…")
     await _send_news(bot, c.from_user.id, {**st, parts[1]: parts[2]})
 

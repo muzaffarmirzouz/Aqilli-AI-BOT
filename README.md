@@ -12,8 +12,8 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
 ## 📰 Yangilik rasmi (faqat adminlar)
 Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi tayyor rasm qaytadi, izohida sarlavha qalin (jirniy) yozuvda.
 - Urg'u (qizil): `*so'z*` · Teg (qizil yorliq): `[Tezkor] Sarlavha` · Kirill va lotin ikkalasi ham ishlaydi
-- Rasm ostidagi tugmalar: uslub (To'liq rasm / Panel), format (1:1 / 4:5), matnni o'zgartirish
-- Oxirgi tanlangan uslub va format eslab qolinadi
+- Yagona uslub — «To'liq rasm». Rasm ostidagi tugmalar: format (1:1 / 4:5), matnni o'zgartirish
+- Oxirgi tanlangan format eslab qolinadi
 - 📤 **Kanalga yuborish** — @Namanganliklar_uz yoki bot ulangan istalgan kanalga (yoki hammasiga) forward belgisisiz, toza post qilib yuboradi; tasdiqlashdan keyin yuboriladi, post havolasi qaytadi
   (bot o'sha kanalda «Xabar joylash» huquqiga ega admin bo'lishi kerak)
 
@@ -25,7 +25,6 @@ bosilgandan keyin chiqadi.
 - Qo'lda yuborilgan rasmda ham havola bo'lishi mumkin: izoh oxiriga maqola manzilini yozing
 - Sozlamalar: `SITE_URL` (standart https://namanganliklar.uz), `SITE_POLL_SEC` (90),
   `SITE_IMAGE_SIZE` — rasm papkasi (standart `800x450` — saytdagi eng katta nusxa)
-- Saytdan kelgan rasmlar birinchi marta «Panel» uslubida keladi; uslubni tugma bilan almashtirsangiz, keyingi maqolalar ham o'sha uslubda keladi
 
 ## Majburiy obuna
 Bot faqat **@Namanganliklar_uz** kanaliga obuna bo'lganlar uchun ishlaydi (adminlar tekshirilmaydi).

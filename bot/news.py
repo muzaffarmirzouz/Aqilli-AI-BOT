@@ -166,6 +166,7 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
     text = " ".join(text.split())
     d = d or date.today()
 
+    style = "full"  # faqat «To'liq rasm» uslubi qoldirildi
     if style == "panel":
         ph = int(H * (0.56 if fmt == "kvadrat" else 0.6))
         canvas = Image.new("RGBA", (_s(W), _s(H)), DEEP + (255,))
