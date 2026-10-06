@@ -134,6 +134,10 @@ def wmo(code) -> tuple[str, str]:
     return WMO.get(int(code or 0), ("🌡", "—"))
 
 
+def _r(v):
+    return None if v is None else round(v)
+
+
 async def get_weather(region: str) -> dict:
     """{'now': {...}, 'days': {'YYYY-MM-DD': {...}}}"""
     key = f"w:{region}"
@@ -144,11 +148,11 @@ async def get_weather(region: str) -> dict:
     j = await _get_json(
         "https://api.open-meteo.com/v1/forecast",
         {
-            "latitude": lat, "longitude": lon, "timezone": "Asia/Tashkent", "forecast_days": 3,
+            "latitude": lat, "longitude": lon, "timezone": "Asia/Tashkent", "forecast_days": 5,
             "wind_speed_unit": "ms",
             "current": "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m",
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-                     "precipitation_probability_max,wind_speed_10m_max",
+                     "precipitation_probability_max,wind_speed_10m_max,apparent_temperature_max",
         },
     )
     res = {"now": j.get("current", {}), "days": {}}
@@ -160,6 +164,7 @@ async def get_weather(region: str) -> dict:
             "tmin": round(d["temperature_2m_min"][i]),
             "rain": d.get("precipitation_probability_max", [None] * 9)[i],
             "wind": d.get("wind_speed_10m_max", [None] * 9)[i],
+            "feels": _r(d.get("apparent_temperature_max", [None] * 9)[i]),
         }
     _cache[key] = (time.time(), res)
     return res

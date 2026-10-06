@@ -182,7 +182,16 @@ async def weather(m: Message):
     except Exception:
         w = None
     t = today()
-    await m.answer(texts.weather_now(r, w, t) + "\n\n" + texts.weather_day(r, t + timedelta(days=1), w))
+    txt = texts.weather_now(r, w, t) + "\n\n" + texts.weather_day(r, t + timedelta(days=1), w)
+    # kechqurun (18:00 dan keyin) — ertangi kun rasmi, aks holda bugungi
+    d = t + timedelta(days=1) if jobs.now().hour >= 18 else t
+    img = None
+    if w:
+        img = await asyncio.to_thread(jobs.weather_bytes, r, d, {"w": w}, **jobs.bot_style())
+    if img and len(txt) <= 1000:
+        await m.answer_photo(BufferedInputFile(img, "obhavo.jpg"), caption=txt)
+    else:
+        await m.answer(txt)
 
 
 @pm.message(F.text == B_RATES)
@@ -197,7 +206,14 @@ async def rates(m: Message):
         msg += "\n\n" + texts.rates_block(tom_r, "Ertangi valyuta kursi")
     else:
         msg += "\n\n<i>Ertangi kurs Markaziy bank tomonidan hali e'lon qilinmagan.</i>"
-    await m.answer(msg)
+        tom_r = None
+    # rasm: ertangi kurs e'lon qilingan bo'lsa — ertangi, aks holda bugungi
+    rd, rr_ = (tom, tom_r) if tom_r else (t, now_r)
+    img = await asyncio.to_thread(jobs.rates_bytes, DEFAULT_REGION, rd, rr_, **jobs.bot_style())
+    if img and len(msg) <= 1000:
+        await m.answer_photo(BufferedInputFile(img, "kurs.jpg"), caption=msg)
+    else:
+        await m.answer(msg)
 
 
 # =================== Kechki xabar ===================
@@ -357,11 +373,11 @@ async def send_preview(bot: Bot, uid: int, cid: int):
     ch = db.get_chat(cid)
     d = today() + timedelta(days=1)
     data = await jobs.collect(ch["region"], d)
-    img = await jobs.chat_poster(bot, ch, d, data)
-    if not img:
+    items = await jobs.album(ch["region"], d, data, await jobs.chat_style(bot, ch))
+    if not items:
         return await bot.send_message(uid, "⚠️ Ertangi namoz vaqtlari topilmadi — rasm yasab bo'lmadi.")
-    await bot.send_photo(uid, BufferedInputFile(img, "korinish.jpg"),
-                         caption="👁 Kanalga shunday chiqadi.\n\n" + chat_summary(ch), reply_markup=chat_kb(cid))
+    await bot.send_media_group(uid, jobs._media(items, "👁 Kanalga har kuni shunday chiqadi."))
+    await bot.send_message(uid, chat_summary(ch), reply_markup=chat_kb(cid))
 
 
 @router.callback_query(F.data.startswith("cth:"))
@@ -510,16 +526,10 @@ async def a_check(m: Message, command: CommandObject):
 
 @admin.message(Command("sinov"))
 async def a_test(m: Message, bot: Bot):
-    """Kechki xabar va kanal rasmini adminning o'ziga yuboradi."""
-    await jobs.evening(bot, only_user=m.from_user.id)
-    r = user_region(m.from_user.id)
-    d = today() + timedelta(days=1)
-    data = await jobs.collect(r, d)
-    img = await bot_image(r, d, data)
-    if img:
-        await m.answer_photo(BufferedInputFile(img, "sinov.jpg"), caption=jobs.channel_caption(r, d, data, None))
-    else:
-        await m.answer("⚠️ Ertangi vaqtlar topilmadi — rasm chiqmaydi.")
+    """21:00 dagi xabarni (3 ta rasm) faqat adminning o'ziga yuboradi."""
+    n, _ = await jobs.evening(bot, only_user=m.from_user.id)
+    if not n:
+        await m.answer("⚠️ Yuborib bo'lmadi — loglarni tekshiring.")
 
 
 @admin.message(Command("hozir_yubor"))

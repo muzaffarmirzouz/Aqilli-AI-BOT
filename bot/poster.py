@@ -177,32 +177,33 @@ def icon(d, kind, cx, cy, c, bgc):
         d.line([(s(cx - 18), s(cy + 18)), (s(cx + 18), s(cy + 18))], fill=c, width=lw)
 
 
-def weather_icon(d, code, cx, cy, c, cloud_col=(240, 236, 226)):
+def weather_icon(d, code, cx, cy, c, cloud_col=(240, 236, 226), z=1.0):
+    """Ob-havo belgisi. z — kattalashtirish koeffitsiyenti."""
     code = int(code or 0)
-    lw = s(3)
+    lw = s(3 * z)
+    P = lambda x, y: (s(cx + x * z), s(cy + y * z))
     sun = code in (0, 1, 2)
     cloud = code >= 2
     if sun:
-        ox, oy = (cx - 8, cy - 8) if cloud else (cx, cy)
-        d.ellipse([s(ox - 11), s(oy - 11), s(ox + 11), s(oy + 11)], fill=c)
+        ox, oy = (-8, -8) if cloud else (0, 0)
+        d.ellipse([*P(ox - 11, oy - 11), *P(ox + 11, oy + 11)], fill=c)
         for i in range(8):
             a = math.pi / 4 * i
-            d.line([(s(ox + 16 * math.cos(a)), s(oy + 16 * math.sin(a))),
-                    (s(ox + 22 * math.cos(a)), s(oy + 22 * math.sin(a)))], fill=c, width=lw)
+            d.line([P(ox + 16 * math.cos(a), oy + 16 * math.sin(a)),
+                    P(ox + 22 * math.cos(a), oy + 22 * math.sin(a))], fill=c, width=lw)
     if cloud:
-        col = cloud_col
-        for (x, y, r) in ((cx - 10, cy + 6, 11), (cx + 4, cy - 1, 15), (cx + 17, cy + 7, 10)):
-            d.ellipse([s(x - r), s(y - r), s(x + r), s(y + r)], fill=col)
-        d.rounded_rectangle([s(cx - 21), s(cy + 4), s(cx + 27), s(cy + 17)], radius=s(6), fill=col)
-    if code >= 51 and code not in (71, 73, 75, 77, 85, 86):
-        for x in (cx - 10, cx + 2, cx + 14):
-            d.line([(s(x), s(cy + 22)), (s(x - 4), s(cy + 32))], fill=(130, 190, 255), width=lw)
-    if code in (71, 73, 75, 77, 85, 86):
-        for x in (cx - 10, cx + 2, cx + 14):
-            d.ellipse([s(x - 3), s(cy + 24), s(x + 3), s(cy + 30)], fill=(255, 255, 255))
+        for (x, y, r) in ((-10, 6, 11), (4, -1, 15), (17, 7, 10)):
+            d.ellipse([*P(x - r, y - r), *P(x + r, y + r)], fill=cloud_col)
+        d.rounded_rectangle([*P(-21, 4), *P(27, 17)], radius=s(6 * z), fill=cloud_col)
+    snow = code in (71, 73, 75, 77, 85, 86)
+    if code >= 51 and not snow:
+        for x in (-10, 2, 14):
+            d.line([P(x, 22), P(x - 4, 32)], fill=(130, 190, 255), width=lw)
+    if snow:
+        for x in (-10, 2, 14):
+            d.ellipse([*P(x - 3, 24), *P(x + 3, 30)], fill=(255, 255, 255))
     if code >= 95:
-        d.line([(s(cx + 2), s(cy + 18)), (s(cx - 4), s(cy + 28)), (s(cx + 4), s(cy + 28)),
-                (s(cx - 2), s(cy + 38))], fill=GOLD, width=lw)
+        d.line([P(2, 18), P(-4, 28), P(4, 28), P(-2, 38)], fill=GOLD, width=lw)
 
 
 # ---------------- asosiy chizish ----------------
@@ -241,105 +242,170 @@ def _rgba(c, a):
     return (c[0], c[1], c[2], a)
 
 
+class Frame:
+    """Umumiy ramka: fon, naqsh, logotip, shahar, sarlavha va sana, reklama joyi."""
+
+    def __init__(self, *, theme, city, brand, logo, logo_tint, label, d: date):
+        T_ = THEMES.get(theme, THEMES[DEFAULT_THEME])
+        self.T = T_
+        self.ACC, self.TXT, self.TIME = T_["acc"], T_["txt"], T_["time"]
+        self.MUT = _rgba(self.TXT, 165)
+        self.PLINE = _rgba(self.ACC, 100)
+        self.CARD = T_["card"]
+        self.CHIP_TXT = T_["b2"] if T_["dark"] else (255, 248, 232)
+        self.GOOD = (120, 220, 150) if T_["dark"] else (30, 140, 70)
+        self.BAD = (255, 140, 120) if T_["dark"] else (190, 50, 40)
+        self.CLOUD = (240, 236, 226) if T_["dark"] else (175, 165, 145)
+        self.card_rgb = (tuple(int(T_["b1"][j] * 0.7 + T_["b2"][j] * 0.3) for j in range(3))
+                         if T_["dark"] else (252, 248, 238))
+        self.M = M = 56
+        SW, SH = s(W), s(H)
+
+        grad = Image.new("RGB", (1, 256))
+        for i in range(256):
+            t = i / 255
+            grad.putpixel((0, i), tuple(int(T_["b1"][j] + (T_["b2"][j] - T_["b1"][j]) * t) for j in range(3)))
+        img = grad.resize((SW, SH), Image.BILINEAR).convert("RGBA")
+        glow = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse([s(W * 0.8 - 420), s(-300), s(W * 0.8 + 420), s(540)], fill=_rgba(self.ACC, 50))
+        img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(s(160))))
+        pat = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+        pd = ImageDraw.Draw(pat)
+        for yy in range(-48, H + 96, 96):
+            for xx in range(-48, W + 96, 96):
+                pts = star_pts(xx, yy, 96 * 0.42)
+                pd.line(pts + [pts[0]], fill=_rgba(self.ACC, 20), width=s(1.5))
+        self.img = Image.alpha_composite(img, pat)
+        self.lay = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+        self.dr = dr = ImageDraw.Draw(self.lay)
+
+        # sarlavha: logotip + brend | shahar
+        brand = (brand or "").strip()
+        logo_im = _load_logo(logo, logo_tint, self.TXT) if logo else None
+        if logo_im is not None:
+            lh = 80
+            lw = min(220, logo_im.width * lh / logo_im.height)
+            lh = lw * logo_im.height / logo_im.width
+            li = logo_im.resize((s(lw), s(lh)), Image.LANCZOS)
+            self.lay.paste(li, (s(M), s(86 - lh / 2)), li)
+            self.dr = dr = ImageDraw.Draw(self.lay)
+            brand_x = M + lw + 20
+        else:
+            rr(dr, M, 48, 76, 76, 18, fill=self.ACC)
+            words = [w for w in brand.replace(".", " ").split() if w[:1].isalnum()]
+            ini = "".join(w[0] for w in words[:2]).upper() or "NV"
+            dr.text((s(M + 38), s(87)), ini, font=font("display", 30), fill=self.CHIP_TXT, anchor="mm")
+            brand_x = M + 96
+        cty = city.upper()
+        cf = font("body800", 22)
+        cw = text_w(dr, cty, cf, 2.5) / K + 66
+        rr(dr, W - M - cw, 58, cw, 56, 28, fill=self.CARD, outline=self.PLINE, width=2)
+        px, py = W - M - cw + 28, 84
+        dr.pieslice([s(px - 8), s(py - 11), s(px + 8), s(py + 5)], 180, 360, fill=self.ACC)
+        dr.polygon([(s(px - 8), s(py - 3)), (s(px + 8), s(py - 3)), (s(px), s(py + 11))], fill=self.ACC)
+        spaced(dr, W - M - cw + 46, 95, cty, cf, self.TXT, 2.5)
+        if brand:
+            bf = font("display", 22)
+            b = brand.upper()
+            maxw = W - M - cw - 24 - brand_x
+            while text_w(dr, b, bf, 1) / K > maxw and len(b) > 4:
+                b = b[:-2].rstrip("…") + "…"
+            spaced(dr, brand_x, 95, b, bf, self.TXT, 1)
+
+        # bo'lim nomi va sana
+        spaced(dr, M, 186, label, font("body800", 24), self.ACC, 6)
+        big = f"{d.day}-{MONTHS[d.month - 1]}"
+        bf = font("display", 66)
+        dr.text((s(M - 2), s(262)), big, font=bf, fill=self.TXT, anchor="ls")
+        bw = dr.textlength(big, font=bf) / K
+        dr.text((s(M + bw + 18), s(262)), str(d.year), font=font("display", 30), fill=self.ACC, anchor="ls")
+        dr.text((s(W - M), s(262)), DAYS[d.weekday()], font=font("body800", 26), fill=self.TXT, anchor="rs")
+        self.top = 292
+
+    def card(self, x, y, w, h, r=26):
+        rr(self.dr, x, y, w, h, r, fill=self.CARD, outline=self.PLINE, width=2)
+
+    def ad(self, ay, ad_text="", ad_contact="", ad_image=None, footer=""):
+        dr, M = self.dr, self.M
+        ah = H - 40 - ay
+        ax, aw = M, W - 2 * M
+        if ad_image:
+            try:
+                im = Image.open(io.BytesIO(ad_image)).convert("RGB")
+                sc = max(s(aw) / im.width, s(ah) / im.height)
+                im = im.resize((max(1, int(im.width * sc)), max(1, int(im.height * sc))), Image.LANCZOS)
+                lft, top = (im.width - s(aw)) // 2, (im.height - s(ah)) // 2
+                im = im.crop((lft, top, lft + s(aw), top + s(ah)))
+                mask = Image.new("L", (s(aw), s(ah)), 0)
+                ImageDraw.Draw(mask).rounded_rectangle([0, 0, s(aw) - 1, s(ah) - 1], radius=s(22), fill=255)
+                self.lay.paste(im, (s(ax), s(ay)), mask)
+                self.dr = dr = ImageDraw.Draw(self.lay)
+            except Exception:
+                ad_image = None
+        if not ad_image:
+            rr(dr, ax, ay, aw, ah, 22, fill=self.CARD)
+            for (x0, y0, x1) in ((ax + 22, ay, ax + aw - 22), (ax + 22, ay + ah, ax + aw - 22)):
+                xx = x0
+                while xx < x1:
+                    dr.line([(s(xx), s(y0)), (s(min(xx + 12, x1)), s(y0))], fill=self.PLINE, width=s(2))
+                    xx += 22
+            for x0 in (ax, ax + aw):
+                yy = ay + 22
+                while yy < ay + ah - 22:
+                    dr.line([(s(x0), s(yy)), (s(x0), s(min(yy + 12, ay + ah - 22)))], fill=self.PLINE, width=s(2))
+                    yy += 22
+            txt = ad_text or "Reklamangiz uchun joy"
+            size = 32
+            while dr.textlength(txt, font=font("display", size)) / K > aw - 60 and size > 16:
+                size -= 2
+            dr.text((s(W / 2), s(ay + ah / 2 + (2 if ad_contact else 12))), txt, font=font("display", size),
+                    fill=self.TXT, anchor="ms")
+            if ad_contact:
+                spaced(dr, W / 2, ay + ah / 2 + 40, f"BOG'LANISH: {ad_contact}".upper(), font("body800", 18),
+                       self.ACC, 1.5, "c")
+        elif ad_text or ad_contact:
+            band = Image.new("RGBA", self.lay.size, (0, 0, 0, 0))
+            ImageDraw.Draw(band).rounded_rectangle([s(ax), s(ay + ah - 52), s(ax + aw), s(ay + ah)],
+                                                   radius=s(22), fill=(0, 0, 0, 150))
+            self.lay = Image.alpha_composite(self.lay, band)
+            self.dr = dr = ImageDraw.Draw(self.lay)
+            line = "  ·  ".join(x for x in (ad_text, ad_contact) if x)
+            dr.text((s(W / 2), s(ay + ah - 18)), line, font=font("body800", 20), fill=(255, 255, 255), anchor="ms")
+        if footer:
+            spaced(dr, W / 2, H - 12, footer.upper(), font("body800", 14), self.MUT, 2, "c")
+
+    def finish(self) -> bytes:
+        img = Image.alpha_composite(self.img, self.lay).convert("RGB").resize((W, H), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=93, optimize=True)
+        return buf.getvalue()
+
+
+def _money(v: float) -> str:
+    return f"{v:,.2f}".replace(",", " ")
+
+
+# ======================= 1. NAMOZ VAQTLARI =======================
 def render(*, d: date, city: str, times: dict, hijri: str = "", brand: str = "",
            footer: str = "", weather: dict | None = None, usd: dict | None = None,
            weather_text: str = "", theme: str = DEFAULT_THEME, ad_text: str = "",
            ad_contact: str = "", ad_image: bytes | None = None,
            logo: bytes | None = None, logo_tint: bool = False) -> bytes:
-    T_ = THEMES.get(theme, THEMES[DEFAULT_THEME])
-    ACC, TXT, TIME = T_["acc"], T_["txt"], T_["time"]
-    MUT = _rgba(TXT, 165)
-    PLINE = _rgba(ACC, 100)
-    PAT = _rgba(ACC, 20)
-    CHIP_TXT = T_["b2"] if T_["dark"] else (255, 248, 232)
-    SW, SH = s(W), s(H)
+    F = Frame(theme=theme, city=city, brand=brand, logo=logo, logo_tint=logo_tint, label="NAMOZ VAQTLARI", d=d)
+    dr, M, TXT, TIME, ACC = F.dr, F.M, F.TXT, F.TIME, F.ACC
 
-    # fon gradienti
-    grad = Image.new("RGB", (1, 256))
-    for i in range(256):
-        t = i / 255
-        grad.putpixel((0, i), tuple(int(T_["b1"][j] + (T_["b2"][j] - T_["b1"][j]) * t) for j in range(3)))
-    img = grad.resize((SW, SH), Image.BILINEAR).convert("RGBA")
-    glow = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
-    ImageDraw.Draw(glow).ellipse([s(W * 0.8 - 420), s(-300), s(W * 0.8 + 420), s(540)], fill=_rgba(ACC, 50))
-    img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(s(160))))
-
-    # girih naqsh
-    pat = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
-    pd = ImageDraw.Draw(pat)
-    S_ = 96
-    for yy in range(-48, H + S_, S_):
-        for xx in range(-48, W + S_, S_):
-            pts = star_pts(xx, yy, S_ * 0.42)
-            pd.line(pts + [pts[0]], fill=PAT, width=s(1.5))
-    img = Image.alpha_composite(img, pat)
-
-    lay = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
-    dr = ImageDraw.Draw(lay)
-    M = 56
-
-    # --- 1. Sarlavha: brend belgisi + nomi | shahar
-    brand = (brand or "").strip()
-    logo_im = _load_logo(logo, logo_tint, TXT) if logo else None
-    if logo_im is not None:
-        lh = 80
-        lw = min(220, logo_im.width * lh / logo_im.height)
-        lh = lw * logo_im.height / logo_im.width
-        li = logo_im.resize((s(lw), s(lh)), Image.LANCZOS)
-        lay.paste(li, (s(M), s(86 - lh / 2)), li)
-        dr = ImageDraw.Draw(lay)
-        brand_x = M + lw + 20
-    else:
-        rr(dr, M, 48, 76, 76, 18, fill=ACC)
-        words = [w for w in brand.replace(".", " ").split() if w[:1].isalnum()]
-        ini = "".join(w[0] for w in words[:2]).upper() or "NV"
-        dr.text((s(M + 38), s(87)), ini, font=font("display", 30 if len(ini) > 1 else 36), fill=CHIP_TXT, anchor="mm")
-        brand_x = M + 96
-    cty = city.upper()
-    cf = font("body800", 22)
-    cw = text_w(dr, cty, cf, 2.5) / K + 66
-    rr(dr, W - M - cw, 58, cw, 56, 28, fill=T_["card"], outline=PLINE, width=2)
-    px, py = W - M - cw + 28, 84
-    dr.pieslice([s(px - 8), s(py - 11), s(px + 8), s(py + 5)], 180, 360, fill=ACC)
-    dr.polygon([(s(px - 8), s(py - 3)), (s(px + 8), s(py - 3)), (s(px), s(py + 11))], fill=ACC)
-    spaced(dr, W - M - cw + 46, 95, cty, cf, TXT, 2.5)
-    if brand:
-        bf = font("display", 22)
-        b = brand.upper()
-        maxw = W - M - cw - 24 - brand_x
-        while text_w(dr, b, bf, 1) / K > maxw and len(b) > 4:
-            b = b[:-2].rstrip("…") + "…"
-        spaced(dr, brand_x, 95, b, bf, TXT, 1)
-
-    # --- 2. Sana
-    spaced(dr, M, 186, "NAMOZ VAQTLARI", font("body800", 24), ACC, 6)
-    big = f"{d.day}-{MONTHS[d.month - 1]}"
-    bf = font("display", 66)
-    dr.text((s(M - 2), s(262)), big, font=bf, fill=TXT, anchor="ls")
-    bw = dr.textlength(big, font=bf) / K
-    dr.text((s(M + bw + 18), s(262)), str(d.year), font=font("display", 30), fill=ACC, anchor="ls")
-    day_s = DAYS[d.weekday()]
-    dr.text((s(W - M), s(262)), day_s, font=font("body800", 26), fill=TXT, anchor="rs")
-    if hijri:
-        dr.text((s(W - M), s(222)), f"{hijri} h.", font=font("body600", 20), fill=MUT, anchor="rs")
-
-    # --- 3. Vaqt kartalari (asosiy, eng katta qism)
-    gy, gap, th = 292, 14, 214
+    gy, gap, th = F.top, 14, 214
     tw = (W - 2 * M - gap) / 2
     nf = font("display", 24)
-    # barcha kartalar uchun bir xil raqam o'lchami
     num_size = 168
     while num_size > 80 and max(dr.textlength(times[k], font=font("num", num_size)) for k in PRAYER_KEYS) / K > tw - 48:
         num_size -= 4
     nfont = font("num", num_size)
-    card_rgb = tuple(int(T_["b1"][j] * 0.7 + T_["b2"][j] * 0.3) for j in range(3))
-    if not T_["dark"]:
-        card_rgb = (252, 248, 238)
     for i, k in enumerate(PRAYER_KEYS):
         x = M + (i % 2) * (tw + gap)
         y = gy + (i // 2) * (th + gap)
-        rr(dr, x, y, tw, th, 26, fill=T_["card"], outline=PLINE, width=2)
-        icon(dr, k, x + 44, y + 44, ACC, card_rgb)
+        F.card(x, y, tw, th)
+        icon(dr, k, x + 44, y + 44, ACC, F.card_rgb)
         spaced(dr, x + 78, y + 53, NAMES[i], nf, TXT, 2)
         tk = TAKBIR[i] if i < len(TAKBIR) else 0
         if tk:
@@ -347,96 +413,178 @@ def render(*, d: date, city: str, times: dict, hijri: str = "", brand: str = "",
             lf = font("body800", 18)
             cw_ = text_w(dr, lbl, lf, 1) / K + 28
             rr(dr, x + tw - 22 - cw_, y + 22, cw_, 38, 19, fill=ACC)
-            spaced(dr, x + tw - 22 - cw_ + 14, y + 48, lbl, lf, CHIP_TXT, 1)
+            spaced(dr, x + tw - 22 - cw_ + 14, y + 48, lbl, lf, F.CHIP_TXT, 1)
         dr.text((s(x + tw / 2), s(y + th - 26)), times[k], font=nfont, fill=TIME, anchor="ms")
 
-    # --- 4. Ob-havo va dollar (bitta qator)
+    # ob-havo va dollar qatori
     iy, ih = gy + 3 * th + 2 * gap + 14, 96
-    rr(dr, M, iy, W - 2 * M, ih, 22, fill=T_["card"], outline=PLINE, width=2)
+    F.card(M, iy, W - 2 * M, ih, 22)
     mid = W / 2
-    dr.line([(s(mid), s(iy + 18)), (s(mid), s(iy + ih - 18))], fill=PLINE, width=s(2))
+    dr.line([(s(mid), s(iy + 18)), (s(mid), s(iy + ih - 18))], fill=F.PLINE, width=s(2))
     if weather:
-        weather_icon(dr, weather["code"], M + 50, iy + 40, ACC, (240, 236, 226) if T_["dark"] else (175, 165, 145))
+        weather_icon(dr, weather["code"], M + 50, iy + 40, ACC, F.CLOUD)
         t1 = f"{weather['tmax']:+d}°"
         f1 = font("num", 52)
         dr.text((s(M + 100), s(iy + 66)), t1, font=f1, fill=TIME, anchor="ls")
         w1 = dr.textlength(t1, font=f1) / K
-        dr.text((s(M + 108 + w1), s(iy + 66)), f"/ {weather['tmin']:+d}°", font=font("num", 30), fill=MUT, anchor="ls")
+        dr.text((s(M + 108 + w1), s(iy + 66)), f"/ {weather['tmin']:+d}°", font=font("num", 30), fill=F.MUT, anchor="ls")
         if weather_text:
-            wt = weather_text
-            wf = font("body600", 16)
+            wt, wf = weather_text, font("body600", 16)
             while dr.textlength(wt, font=wf) / K > mid - M - 120 and len(wt) > 6:
                 wt = wt[:-2].rstrip() + "…"
-            dr.text((s(M + 100), s(iy + 86)), wt, font=wf, fill=MUT, anchor="ls")
+            dr.text((s(M + 100), s(iy + 86)), wt, font=wf, fill=F.MUT, anchor="ls")
     else:
-        dr.text((s(M + 28), s(iy + 62)), "Ob-havo: —", font=font("body800", 22), fill=MUT, anchor="ls")
+        dr.text((s(M + 28), s(iy + 62)), "Ob-havo: —", font=font("body800", 22), fill=F.MUT, anchor="ls")
     ux = mid + 28
     spaced(dr, ux, iy + 30, "1 USD · MARKAZIY BANK", font("body800", 14), ACC, 1.5)
     if usd:
-        val = f"{usd['rate']:,.2f}".replace(",", " ")
+        val = _money(usd["rate"])
         f2 = font("num", 48)
         dr.text((s(ux), s(iy + 76)), val, font=f2, fill=TIME, anchor="ls")
         vw = dr.textlength(val, font=f2) / K
         diff = usd.get("diff", 0)
-        good, bad = (40, 150, 80) if not T_["dark"] else (120, 220, 150), (200, 60, 50) if not T_["dark"] else (255, 140, 120)
-        col = good if diff > 0 else bad if diff < 0 else MUT
+        col = F.GOOD if diff > 0 else F.BAD if diff < 0 else F.MUT
         arrow = "▲" if diff > 0 else "▼" if diff < 0 else "•"
         dr.text((s(ux + vw + 10), s(iy + 76)), f"so'm  {arrow}{abs(diff):.2f}", font=font("body800", 17), fill=col, anchor="ls")
     else:
-        dr.text((s(ux), s(iy + 70)), "—", font=font("num", 40), fill=MUT, anchor="ls")
+        dr.text((s(ux), s(iy + 70)), "—", font=font("num", 40), fill=F.MUT, anchor="ls")
 
-    # --- 5. Reklama joyi
-    ay = iy + ih + 14
-    ah = H - 40 - ay
-    ax, aw = M, W - 2 * M
-    if ad_image:
-        try:
-            im = Image.open(io.BytesIO(ad_image)).convert("RGB")
-            sc = max(s(aw) / im.width, s(ah) / im.height)
-            im = im.resize((max(1, int(im.width * sc)), max(1, int(im.height * sc))), Image.LANCZOS)
-            lft, top = (im.width - s(aw)) // 2, (im.height - s(ah)) // 2
-            im = im.crop((lft, top, lft + s(aw), top + s(ah)))
-            mask = Image.new("L", (s(aw), s(ah)), 0)
-            ImageDraw.Draw(mask).rounded_rectangle([0, 0, s(aw) - 1, s(ah) - 1], radius=s(22), fill=255)
-            lay.paste(im, (s(ax), s(ay)), mask)
-            dr = ImageDraw.Draw(lay)
-            ad_text = ad_text if ad_text else ""
-        except Exception:
-            ad_image = None
-    if not ad_image:
-        rr(dr, ax, ay, aw, ah, 22, fill=T_["card"])
-        # uzuq chiziqli chegara
-        per = 0
-        for (x0, y0, x1, y1) in ((ax + 22, ay, ax + aw - 22, ay), (ax + 22, ay + ah, ax + aw - 22, ay + ah)):
-            xx = x0
-            while xx < x1:
-                dr.line([(s(xx), s(y0)), (s(min(xx + 12, x1)), s(y1))], fill=PLINE, width=s(2))
-                xx += 22
-        for x0 in (ax, ax + aw):
-            yy = ay + 22
-            while yy < ay + ah - 22:
-                dr.line([(s(x0), s(yy)), (s(x0), s(min(yy + 12, ay + ah - 22)))], fill=PLINE, width=s(2))
-                yy += 22
-        txt = ad_text or "Reklamangiz uchun joy"
-        af = font("display", 32)
-        while dr.textlength(txt, font=af) / K > aw - 60 and af.size > 30:
-            af = font("display", int(af.size / K) - 2)
-        dr.text((s(W / 2), s(ay + ah / 2 + (2 if ad_contact else 12))), txt, font=af, fill=TXT, anchor="ms")
-        if ad_contact:
-            spaced(dr, W / 2, ay + ah / 2 + 40, f"BOG'LANISH: {ad_contact}".upper(), font("body800", 18), ACC, 1.5, "c")
-    elif ad_text or ad_contact:
-        # rasm ustiga pastki yozuv
-        band = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
-        ImageDraw.Draw(band).rounded_rectangle([s(ax), s(ay + ah - 52), s(ax + aw), s(ay + ah)], radius=s(22), fill=(0, 0, 0, 150))
-        lay = Image.alpha_composite(lay, band)
-        dr = ImageDraw.Draw(lay)
-        line = "  ·  ".join(x for x in (ad_text, ad_contact) if x)
-        dr.text((s(W / 2), s(ay + ah - 18)), line, font=font("body800", 20), fill=(255, 255, 255), anchor="ms")
+    F.ad(iy + ih + 14, ad_text, ad_contact, ad_image, footer)
+    return F.finish()
 
-    if footer:
-        spaced(dr, W / 2, H - 12, footer.upper(), font("body800", 14), MUT, 2, "c")
 
-    img = Image.alpha_composite(img, lay).convert("RGB").resize((W, H), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=93, optimize=True)
-    return buf.getvalue()
+# ======================= 2. OB-HAVO =======================
+WDAYS_SHORT = ["DU", "SE", "CHOR", "PAY", "JUMA", "SHAN", "YAK"]
+
+
+def render_weather(*, d: date, city: str, day: dict, desc: str, next_days: list[tuple[date, dict]] = (),
+                   brand: str = "", theme: str = DEFAULT_THEME, ad_text: str = "", ad_contact: str = "",
+                   ad_image: bytes | None = None, logo: bytes | None = None, logo_tint: bool = False) -> bytes:
+    """day: {'code','tmax','tmin','rain','wind','feels'}; next_days: [(sana, day), ...]"""
+    F = Frame(theme=theme, city=city, brand=brand, logo=logo, logo_tint=logo_tint, label="OB-HAVO MA'LUMOTI", d=d)
+    dr, M, TXT, TIME, ACC = F.dr, F.M, F.TXT, F.TIME, F.ACC
+    full = W - 2 * M
+
+    # asosiy karta: katta belgi + harorat
+    y0, hh = F.top, 420
+    F.card(M, y0, full, hh)
+    weather_icon(dr, day["code"], M + 190, y0 + 175, ACC, F.CLOUD, z=4.4)
+    t1 = f"{day['tmax']:+d}°"
+    f1 = font("num", 230)
+    tx = M + 380
+    dr.text((s(tx), s(y0 + 270)), t1, font=f1, fill=TIME, anchor="ls")
+    spaced(dr, tx + 6, y0 + 70, "KUNDUZI", font("body800", 20), ACC, 3)
+    ds = 30
+    while dr.textlength(desc, font=font("display", ds)) / K > 340 and ds > 16:
+        ds -= 2
+    dr.text((s(M + 190), s(y0 + 372)), desc, font=font("display", ds), fill=TXT, anchor="ms")
+    spaced(dr, tx + 6, y0 + 330, "KECHASI", font("body800", 20), ACC, 3)
+    dr.text((s(tx + 6), s(y0 + 390)), f"{day['tmin']:+d}°", font=font("num", 64), fill=TXT, anchor="ls")
+
+    # 3 ta tafsilot
+    y1, h1, gap = y0 + hh + 14, 170, 14
+    cw = (full - 2 * gap) / 3
+    items = [
+        ("YOG'IN EHTIMOLI", f"{day['rain']}%" if day.get("rain") is not None else "—"),
+        ("SHAMOL", f"{round(day['wind'])} m/s" if day.get("wind") is not None else "—"),
+        ("HIS QILINADI", f"{day['feels']:+d}°" if day.get("feels") is not None else "—"),
+    ]
+    for i, (lbl, val) in enumerate(items):
+        x = M + i * (cw + gap)
+        F.card(x, y1, cw, h1, 22)
+        spaced(dr, x + cw / 2, y1 + 48, lbl, font("body800", 17), ACC, 2, "c")
+        vs = 88
+        while dr.textlength(val, font=font("num", vs)) / K > cw - 30 and vs > 40:
+            vs -= 4
+        dr.text((s(x + cw / 2), s(y1 + 136)), val, font=font("num", vs), fill=TIME, anchor="ms")
+
+    # keyingi kunlar
+    y2, h2 = y1 + h1 + 14, 170
+    nd = list(next_days)[:3]
+    if nd:
+        cw2 = (full - (len(nd) - 1) * gap) / len(nd)
+        for i, (dd, dy) in enumerate(nd):
+            x = M + i * (cw2 + gap)
+            F.card(x, y2, cw2, h2, 22)
+            spaced(dr, x + 26, y2 + 42, f"{dd.day}-{MONTHS[dd.month - 1][:3]} · {DAYS[dd.weekday()][:4]}",
+                   font("body800", 17), ACC, 1.5)
+            weather_icon(dr, dy["code"], x + 58, y2 + 100, ACC, F.CLOUD, z=1.3)
+            a_, b_ = f"{dy['tmax']:+d}°", f"{dy['tmin']:+d}°"
+            fs = 64
+            while dr.textlength(a_, font=font("num", fs)) / K > cw2 - 130 and fs > 30:
+                fs -= 4
+            dr.text((s(x + 112), s(y2 + 112)), a_, font=font("num", fs), fill=TIME, anchor="ls")
+            dr.text((s(x + 114), s(y2 + 148)), f"kechasi {b_}", font=font("body800", 18), fill=F.MUT, anchor="ls")
+        y_ad = y2 + h2 + 14
+    else:
+        y_ad = y1 + h1 + 14
+
+    F.ad(y_ad, ad_text, ad_contact, ad_image)
+    return F.finish()
+
+
+# ======================= 3. VALYUTA KURSI =======================
+CCY_NAMES = {"USD": "AQSH DOLLARI", "EUR": "YEVRO", "RUB": "ROSSIYA RUBLI"}
+
+
+def render_rates(*, d: date, city: str, rates: dict, brand: str = "", theme: str = DEFAULT_THEME,
+                 ad_text: str = "", ad_contact: str = "", ad_image: bytes | None = None,
+                 logo: bytes | None = None, logo_tint: bool = False) -> bytes:
+    """rates: {'USD': {'rate','diff','date'}, 'EUR': ..., 'RUB': ...}"""
+    F = Frame(theme=theme, city=city, brand=brand, logo=logo, logo_tint=logo_tint, label="VALYUTA KURSI", d=d)
+    dr, M, TXT, TIME, ACC = F.dr, F.M, F.TXT, F.TIME, F.ACC
+    full = W - 2 * M
+
+    def diff_chip(x, y, diff, size=22, anchor="l"):
+        col = F.GOOD if diff > 0 else F.BAD if diff < 0 else F.MUT
+        arrow = "▲" if diff > 0 else "▼" if diff < 0 else "•"
+        dr.text((s(x), s(y)), f"{arrow} {abs(diff):.2f}", font=font("body800", size), fill=col,
+                anchor="ls" if anchor == "l" else "rs")
+
+    # asosiy: dollar
+    y0, hh = F.top, 460
+    F.card(M, y0, full, hh)
+    usd = rates.get("USD")
+    spaced(dr, M + 40, y0 + 64, "1 " + CCY_NAMES["USD"], font("display", 26), TXT, 2)
+    rr(dr, W - M - 40 - 92, y0 + 34, 92, 44, 22, fill=ACC)
+    dr.text((s(W - M - 40 - 46), s(y0 + 57)), "USD", font=font("body800", 22), fill=F.CHIP_TXT, anchor="mm")
+    if usd:
+        val = _money(usd["rate"])
+        size = 230
+        while dr.textlength(val, font=font("num", size)) / K > full - 80 and size > 100:
+            size -= 6
+        dr.text((s(W / 2), s(y0 + 310)), val, font=font("num", size), fill=TIME, anchor="ms")
+        dr.text((s(M + 40), s(y0 + 410)), "so'm", font=font("display", 30), fill=F.MUT, anchor="ls")
+        diff_chip(W - M - 40, y0 + 410, usd.get("diff", 0), 28, "r")
+    else:
+        dr.text((s(W / 2), s(y0 + 260)), "—", font=font("num", 160), fill=F.MUT, anchor="ms")
+
+    # yevro va rubl
+    y1, h1, gap = y0 + hh + 14, 210, 14
+    cw = (full - gap) / 2
+    for i, c in enumerate(("EUR", "RUB")):
+        x = M + i * (cw + gap)
+        F.card(x, y1, cw, h1, 22)
+        spaced(dr, x + 30, y1 + 48, f"1 {CCY_NAMES[c]}", font("body800", 18), ACC, 2)
+        r = rates.get(c)
+        if r:
+            v = _money(r["rate"])
+            fs = 100
+            while dr.textlength(v, font=font("num", fs)) / K > cw - 60 and fs > 40:
+                fs -= 4
+            dr.text((s(x + 30), s(y1 + 150)), v, font=font("num", fs), fill=TIME, anchor="ls")
+            diff_chip(x + 32, y1 + 188, r.get("diff", 0), 18)
+            dr.text((s(x + cw - 30), s(y1 + 188)), "so'm", font=font("body800", 18), fill=F.MUT, anchor="rs")
+        else:
+            dr.text((s(x + 30), s(y1 + 140)), "—", font=font("num", 80), fill=F.MUT, anchor="ls")
+
+    # izoh
+    y2 = y1 + h1 + 14
+    date_s = (usd or next(iter(rates.values()), {})).get("date", "")
+    note = f"O'zbekiston Respublikasi Markaziy banki kursi · {date_s} dan amal qiladi" if date_s else \
+        "O'zbekiston Respublikasi Markaziy banki kursi"
+    F.card(M, y2, full, 64, 20)
+    dr.text((s(W / 2), s(y2 + 41)), note, font=font("body600", 19), fill=F.MUT, anchor="ms")
+
+    F.ad(y2 + 64 + 14, ad_text, ad_contact, ad_image)
+    return F.finish()

@@ -5,11 +5,11 @@ from datetime import date, datetime, timedelta
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, InputMediaPhoto
 
 from . import db, prayer_table, sources, texts
 from .config import AD_CONTACT, ADMIN_IDS, BRAND, PRECHECK_MIN, REMIND_DAYS, SEND_AT, TZ
-from .poster import default_logo, render
+from .poster import default_logo, render, render_rates, render_weather
 from .regions import name as region_name
 
 log = logging.getLogger(__name__)
@@ -31,6 +31,26 @@ async def collect(region: str, d: date) -> dict:
     usd_date = rates.get("USD", {}).get("date", "")
     rates_for_d = usd_date == d.strftime("%d.%m.%Y")
     return {"rec": rec, "w": w, "rates": rates, "rates_for_d": rates_for_d}
+
+
+def weather_bytes(region: str, d: date, data: dict, **style) -> bytes | None:
+    days = (data["w"] or {}).get("days", {})
+    day = days.get(d.isoformat())
+    if not day:
+        return None
+    nxt = []
+    for i in (1, 2, 3):
+        dd = d + timedelta(days=i)
+        if dd.isoformat() in days:
+            nxt.append((dd, days[dd.isoformat()]))
+    return render_weather(d=d, city=region_name(region), day=day, desc=sources.wmo(day["code"])[1],
+                          next_days=nxt, brand=BRAND, **style)
+
+
+def rates_bytes(region: str, d: date, rates: dict, **style) -> bytes | None:
+    if not rates or "USD" not in rates:
+        return None
+    return render_rates(d=d, city=region_name(region), rates=rates, brand=BRAND, **style)
 
 
 def poster_bytes(region: str, d: date, data: dict, brand: str, footer: str, **style) -> bytes | None:
@@ -83,6 +103,44 @@ async def chat_poster(bot: Bot, c, d: date, data: dict) -> bytes | None:
     )
 
 
+async def chat_style(bot: Bot, c) -> dict:
+    return dict(
+        theme=c["theme"] or "zumrad",
+        ad_text=c["ad_text"] or "",
+        ad_contact=c["ad_contact"] if c["ad_contact"] is not None else AD_CONTACT,
+        ad_image=await _file(bot, c["ad_file"]), logo=default_logo(), logo_tint=True,
+    )
+
+
+def bot_style() -> dict:
+    t = db.kv_get("bot_theme") or "zumrad"
+    return dict(theme=t, ad_contact=AD_CONTACT, logo=default_logo(), logo_tint=True)
+
+
+async def album(region: str, d: date, data: dict, style: dict) -> list[tuple[str, bytes]]:
+    """[(nom, rasm)] — namoz (majburiy), ob-havo, valyuta (bo'lsa)."""
+    out = []
+    p = await asyncio.to_thread(poster_bytes, region, d, data, BRAND, "", **style)
+    if p is None:
+        return []
+    out.append(("namoz", p))
+    w = await asyncio.to_thread(weather_bytes, region, d, data, **style)
+    if w:
+        out.append(("obhavo", w))
+    r = await asyncio.to_thread(rates_bytes, region, d, data["rates"], **style)
+    if r:
+        out.append(("kurs", r))
+    return out
+
+
+def _media(items, caption: str):
+    media = []
+    for i, (name, b) in enumerate(items):
+        src = b if isinstance(b, str) else BufferedInputFile(b, f"{name}.jpg")
+        media.append(InputMediaPhoto(media=src, caption=caption if i == 0 else None))
+    return media
+
+
 def channel_caption(region: str, d: date, data: dict, username: str | None) -> str:
     wd = (data["w"] or {}).get("days", {}).get(d.isoformat())
     lines = [f"🕌 <b>{texts.dstr(d).capitalize()} — {region_name(region)} namoz vaqtlari</b>"]
@@ -94,6 +152,22 @@ def channel_caption(region: str, d: date, data: dict, username: str | None) -> s
         lines.append(f"💵 1 USD = {texts.money(usd['rate'])} so'm (MB, {usd['date']})")
     if username:
         lines.append(f"\n👉 @{username}")
+    return "\n".join(lines)
+
+
+def user_caption(region: str, d: date, data: dict) -> str:
+    rec = data["rec"]
+    lines = [f"🌙 <b>Ertangi kun — {texts.dstr(d)}</b>"]
+    if rec:
+        t = rec["times"]
+        lines.append(f"🕌 Bomdod {t['bomdod']} · Peshin {t['peshin']} · Asr {t['asr']} · "
+                     f"Shom {t['shom']} · Xufton {t['xufton']}")
+    wd = (data["w"] or {}).get("days", {}).get(d.isoformat())
+    if wd:
+        lines.append(f"{sources.wmo(wd['code'])[0]} {wd['tmin']:+d}° … {wd['tmax']:+d}°, {sources.wmo(wd['code'])[1].lower()}")
+    usd = data["rates"].get("USD")
+    if usd:
+        lines.append(f"💵 1 USD = {texts.money(usd['rate'])} so'm ({usd['date']})")
     return "\n".join(lines)
 
 
@@ -171,37 +245,53 @@ async def evening(bot: Bot, only_chat: int | None = None, only_user: int | None 
     sent_u = sent_c = 0
     missing = set()
 
-    # --- foydalanuvchilar
+    # --- foydalanuvchilar: 3 ta rasm (albom), birinchisida qisqacha matn
     users = db.notify_users() if only_chat is None else []
     if only_user:
         u = db.get_user(only_user)
         users = [{"id": only_user, "region": (u["region"] if u and u["region"] else "namangan")}]
+    ustyle = bot_style()
+    file_ids: dict[str, list] = {}  # hudud -> Telegram'ga yuklangan rasmlar (qayta yuklamaslik uchun)
     for u in users:
         data = await data_for(u["region"])
-        txt = texts.evening_digest(u["region"], d, data["rec"], data["w"], data["rates"], data["rates_for_d"])
-        ok = await _safe(lambda: bot.send_message(u["id"], txt),
-                         on_forbidden=lambda uid=u["id"]: db.set_user(uid, active=0))
+        cap = user_caption(u["region"], d, data)
+        if u["region"] not in file_ids:
+            items = await album(u["region"], d, data, ustyle)
+            if not items:
+                missing.add(region_name(u["region"]))
+                file_ids[u["region"]] = []
+        else:
+            items = file_ids[u["region"]]
+        if not items:
+            txt = texts.evening_digest(u["region"], d, data["rec"], data["w"], data["rates"], data["rates_for_d"])
+            ok = await _safe(lambda: bot.send_message(u["id"], txt),
+                             on_forbidden=lambda uid=u["id"]: db.set_user(uid, active=0))
+        else:
+            ok = await _safe(lambda: bot.send_media_group(u["id"], _media(items, cap)),
+                             on_forbidden=lambda uid=u["id"]: db.set_user(uid, active=0))
+            if ok and u["region"] not in file_ids:
+                file_ids[u["region"]] = [(n, m.photo[-1].file_id) for (n, _), m in zip(items, ok)]
         sent_u += bool(ok)
-        await asyncio.sleep(0.04)
+        await asyncio.sleep(0.05)
 
-    # --- kanallar / guruhlar
+    # --- kanallar / guruhlar: albom (namoz + ob-havo + kurs)
     chats = db.active_chats() if only_user is None else []
     if only_chat:
         c = db.get_chat(only_chat)
         chats = [c] if c else []
     for c in chats:
         data = await data_for(c["region"])
-        img = await chat_poster(bot, c, d, data)
-        if img is None:
+        items = await album(c["region"], d, data, await chat_style(bot, c))
+        if not items:
             missing.add(region_name(c["region"]))
             continue
         cap = channel_caption(c["region"], d, data, c["username"])
         ok = await _safe(
-            lambda: bot.send_photo(c["id"], BufferedInputFile(img, f"namoz_{d.isoformat()}.jpg"), caption=cap),
+            lambda: bot.send_media_group(c["id"], _media(items, cap)),
             on_forbidden=lambda cid=c["id"]: db.set_chat(cid, active=0),
         )
         sent_c += bool(ok)
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.2)
 
     if only_chat is None and only_user is None:
         msg = f"✅ Kechki yuborish: {sent_u} foydalanuvchi, {sent_c} kanal/guruh."

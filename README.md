@@ -4,8 +4,9 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
 - 🕌 **Namoz vaqtlari** — bugun / ertaga, keyingi namozgacha qolgan vaqt, rasm ko'rinishida
 - 🌤 **Ob-havo** — hozirgi va ertangi (Open-Meteo)
 - 💵 **Valyuta kursi** — Markaziy bank (USD, EUR, RUB), ertangi kurs e'lon qilingan bo'lsa u ham
-- 🔔 **Har kuni 21:00** da ertangi namoz vaqtlari + ob-havo + dollar kursi
-- 📢 **Kanal/guruhga admin qilinsa** — har kuni 21:00 da ertangi kun posteri (rasm) avtomatik chiqadi.
+- 🔔 **Har kuni 21:00** da ertangi kun: 3 ta rasm (albom) — namoz vaqtlari, ob-havo, valyuta kursi
+- 🌤 / 💵 tugmalari ham Namanganliklar.uz logoli rasm bilan javob beradi
+- 📢 **Kanal/guruhga admin qilinsa** — har kuni 21:00 da 3 ta rasm (namoz, ob-havo, kurs) bitta albom bo'lib chiqadi.
   Rasmda har doim Namanganliklar.uz nomi va logosi bo'ladi (kanal nomi yozilmaydi).
 
 ## Kanal rasmini sozlash
