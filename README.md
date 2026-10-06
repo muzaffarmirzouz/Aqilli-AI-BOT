@@ -25,7 +25,7 @@ bosilgandan keyin chiqadi.
 - Qo'lda yuborilgan rasmda ham havola bo'lishi mumkin: izoh oxiriga maqola manzilini yozing
 - Sozlamalar: `SITE_URL` (standart https://namanganliklar.uz), `SITE_POLL_SEC` (90),
   `SITE_IMAGE_SIZE` — rasm papkasi (standart `800x450` — saytdagi eng katta nusxa)
-- Saytdan kelgan rasm gorizontal bo'lgani uchun standart uslub — «Panel» (tugma bilan almashtirish mumkin)
+- Saytdan kelgan rasmlar birinchi marta «Panel» uslubida keladi; uslubni tugma bilan almashtirsangiz, keyingi maqolalar ham o'sha uslubda keladi
 
 ## Majburiy obuna
 Bot faqat **@Namanganliklar_uz** kanaliga obuna bo'lganlar uchun ishlaydi (adminlar tekshirilmaydi).

@@ -824,8 +824,10 @@ async def offer_site_article(bot: Bot, title: str, link: str, image: bytes):
     """Saytda yangi maqola chiqdi — har bir adminga tayyor rasmni yuboradi (kanalga emas)."""
     for uid in ADMIN_IDS:
         _, fmt = _pref(uid)
-        style = "panel"  # saytdagi rasm gorizontal (800x450) — panel uslubida eng tiniq chiqadi
-        st = {"src": image, "file_id": None, "text": title, "style": style, "fmt": fmt, "tag": "", "link": link}
+        # saytdan kelganlar uchun oxirgi tanlangan uslub (birinchi marta — panel)
+        style = db.kv_get(f"site_style:{uid}") or "panel"
+        style = style if style in STYLE_NAMES else "panel"
+        st = {"site": True, "src": image, "file_id": None, "text": title, "style": style, "fmt": fmt, "tag": "", "link": link}
         try:
             await _send_news(bot, uid, st, intro="🆕 <b>Saytda yangi maqola</b>")
         except Exception as e:
@@ -872,6 +874,8 @@ async def news_cb(c: CallbackQuery, bot: Bot):
         NEWS_WAIT[c.from_user.id] = st
         await c.answer()
         return await c.message.answer("✏️ Yangi sarlavhani yozing (havola o'zgarmaydi):")
+    if st.get("site") and parts[1] == "style":
+        db.kv_set(f"site_style:{c.from_user.id}", parts[2])  # keyingi maqolalar ham shu uslubda keladi
     await c.answer("Tayyorlanmoqda…")
     await _send_news(bot, c.from_user.id, {**st, parts[1]: parts[2]})
 
