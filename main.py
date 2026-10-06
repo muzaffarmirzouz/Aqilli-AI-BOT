@@ -7,7 +7,9 @@ from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 
 from bot.config import BOT_TOKEN
-from bot.handlers import router
+from bot.handlers import offer_site_article, router
+from bot import site
+from bot.jobs import notify_admins
 from bot.jobs import scheduler
 from bot.prayer_table import load_dir
 from bot.subscribe import SubscribeMiddleware
@@ -31,10 +33,12 @@ async def main():
         BotCommand(command="kanal", description="Kanalimga ulash"),
     ])
     task = asyncio.create_task(scheduler(bot))
+    site_task = asyncio.create_task(site.watcher(bot, offer_site_article, notify_admins))
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         task.cancel()
+        site_task.cancel()
 
 
 if __name__ == "__main__":

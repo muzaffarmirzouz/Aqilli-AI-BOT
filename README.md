@@ -17,6 +17,15 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
 - 📤 **Kanalga yuborish** — @Namanganliklar_uz yoki bot ulangan istalgan kanalga (yoki hammasiga) forward belgisisiz, toza post qilib yuboradi; tasdiqlashdan keyin yuboriladi, post havolasi qaytadi
   (bot o'sha kanalda «Xabar joylash» huquqiga ega admin bo'lishi kerak)
 
+## 🌐 Saytdagi yangi maqolalar (avtomatik)
+Bot namanganliklar.uz ni har 90 soniyada tekshiradi. Yangi maqola chiqsa — sarlavha va rasmdan tayyor yangilik
+rasmini yasab **adminlarga** yuboradi (izohida maqola havolasi bilan). Kanalga faqat «📤 Kanalga yuborish»
+bosilgandan keyin chiqadi.
+- `/sayt` — holat, `/sayt off` — o'chirish, `/sayt on` — yoqish
+- Qo'lda yuborilgan rasmda ham havola bo'lishi mumkin: izoh oxiriga maqola manzilini yozing
+- Sozlamalar: `SITE_URL` (standart https://namanganliklar.uz), `SITE_POLL_SEC` (90),
+  `SITE_IMAGE_SIZE` — saytda rasmning kattaroq nusxasi bo'lsa, papka nomi (masalan `1200x800`)
+
 ## Majburiy obuna
 Bot faqat **@Namanganliklar_uz** kanaliga obuna bo'lganlar uchun ishlaydi (adminlar tekshirilmaydi).
 - ⚠️ Bot **@Namanganliklar_uz kanalida admin** bo'lishi shart — aks holda obunani tekshira olmaydi

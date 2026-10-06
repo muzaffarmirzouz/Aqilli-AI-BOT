@@ -725,16 +725,34 @@ async def a_set_bot_theme(c: CallbackQuery, bot: Bot):
 
 
 # =================== Yangilik rasmi (sayt uchun shablon) ===================
-NEWS: dict[int, dict] = {}       # admin -> {file_id, text, style, fmt, tag}
-NEWS_WAIT: set[int] = set()      # sarlavha kutilayotgan adminlar
+# Har bir tayyor rasm (xabar) o'z holatiga ega: tugmalar aynan o'sha rasm bilan ishlaydi.
+NEWS_MSG: dict[tuple[int, int], dict] = {}   # (admin, xabar_id) -> {src, file_id, text, style, fmt, tag, link}
+NEWS_WAIT: dict[int, dict] = {}              # sarlavha kutilayotgan admin -> holat
 STYLE_NAMES = {"full": "To'liq rasm", "panel": "Panel (klassik)"}
 FMT_NAMES = {"kvadrat": "Kvadrat 1:1", "vertikal": "Vertikal 4:5"}
+_URL_RE = re.compile(r"https?://\S+")
 
 
-def _parse_caption(text: str) -> tuple[str, str]:
-    """'[Tezkor] Sarlavha' -> ('Tezkor', 'Sarlavha')"""
-    m = re.match(r"\s*\[([^\]]{1,24})\]\s*(.*)", text or "", re.S)
-    return (m.group(1).strip(), m.group(2).strip()) if m else ("", (text or "").strip())
+def _parse_caption(text: str) -> tuple[str, str, str]:
+    """'[Tezkor] Sarlavha https://...' -> ('Tezkor', 'Sarlavha', 'https://...')"""
+    text = text or ""
+    link = ""
+    m = _URL_RE.search(text)
+    if m:
+        link = m.group(0).rstrip(").,")
+        text = (text[:m.start()] + text[m.end():]).strip()
+    m = re.match(r"\s*\[([^\]]{1,24})\]\s*(.*)", text, re.S)
+    tag, title = (m.group(1).strip(), m.group(2).strip()) if m else ("", text.strip())
+    return tag, title, link
+
+
+def news_caption(text: str, link: str = "") -> str:
+    plain = " ".join((text or "").replace("*", "").split())
+    cap = f"<b>{html.escape(plain, quote=False)}</b>"
+    if link:
+        short = re.sub(r"^https?://(www\.)?", "", link)
+        cap += f"\n\n🔗 Batafsil: <a href=\"{html.escape(link, quote=True)}\">{html.escape(short)}</a>"
+    return cap[:1024]
 
 
 def news_kb(st: dict):
@@ -774,17 +792,27 @@ def _pub_kb(targets):
     return kb.as_markup()
 
 
-async def _send_news(bot: Bot, uid: int):
-    st = NEWS[uid]
-    buf = await bot.download(st["file_id"])
-    img = await asyncio.to_thread(news.render_news, buf.read(), st["text"], st["style"], st["fmt"],
+async def _src_bytes(bot: Bot, st: dict) -> bytes:
+    if st.get("src") is None:
+        buf = await bot.download(st["file_id"])
+        st["src"] = buf.read()
+    return st["src"]
+
+
+async def _send_news(bot: Bot, uid: int, st: dict, intro: str = ""):
+    """Rasmni tayyorlab adminga yuboradi va shu xabarga holatni bog'laydi."""
+    src = await _src_bytes(bot, st)
+    img = await asyncio.to_thread(news.render_news, src, st["text"], st["style"], st["fmt"],
                                   today(), st.get("tag", ""))
     db.kv_set(f"news_pref:{uid}", f"{st['style']}|{st['fmt']}")
-    # izoh: rasmdagi sarlavha aynan o'zi, qalin (yulduzchalarsiz)
-    plain = " ".join(st["text"].replace("*", "").split())
-    caption = f"<b>{html.escape(plain)}</b>"[:1024]
-    await bot.send_photo(uid, BufferedInputFile(img, f"namanganliklar_{today():%Y%m%d}.jpg"),
-                         caption=caption, reply_markup=news_kb(st))
+    if intro:
+        await bot.send_message(uid, intro, disable_web_page_preview=True)
+    m = await bot.send_photo(uid, BufferedInputFile(img, f"namanganliklar_{today():%Y%m%d}.jpg"),
+                             caption=news_caption(st["text"], st.get("link", "")), reply_markup=news_kb(st))
+    NEWS_MSG[(uid, m.message_id)] = st
+    while len(NEWS_MSG) > 300:  # xotirani cheklash
+        NEWS_MSG.pop(next(iter(NEWS_MSG)))
+    return m
 
 
 def _pref(uid: int) -> tuple[str, str]:
@@ -792,55 +820,70 @@ def _pref(uid: int) -> tuple[str, str]:
     return (v[0] if v[0] in STYLE_NAMES else "full", v[1] if len(v) > 1 and v[1] in FMT_NAMES else "kvadrat")
 
 
+async def offer_site_article(bot: Bot, title: str, link: str, image: bytes):
+    """Saytda yangi maqola chiqdi — har bir adminga tayyor rasmni yuboradi (kanalga emas)."""
+    for uid in ADMIN_IDS:
+        style, fmt = _pref(uid)
+        st = {"src": image, "file_id": None, "text": title, "style": style, "fmt": fmt, "tag": "", "link": link}
+        try:
+            await _send_news(bot, uid, st, intro="🆕 <b>Saytda yangi maqola</b>")
+        except Exception as e:
+            log.warning("adminga yangilik yuborilmadi %s: %s", uid, e)
+
+
 @admin.message(F.photo | (F.document & F.document.mime_type.startswith("image/")))
 async def news_photo(m: Message, bot: Bot):
     fid = m.photo[-1].file_id if m.photo else m.document.file_id
-    tag, text = _parse_caption(m.caption or "")
+    tag, text, link = _parse_caption(m.caption or "")
     style, fmt = _pref(m.from_user.id)
-    NEWS[m.from_user.id] = {"file_id": fid, "text": text, "style": style, "fmt": fmt, "tag": tag}
+    st = {"file_id": fid, "src": None, "text": text, "style": style, "fmt": fmt, "tag": tag, "link": link}
     if not text:
-        NEWS_WAIT.add(m.from_user.id)
+        NEWS_WAIT[m.from_user.id] = st
         return await m.answer("✏️ Endi sarlavhani yozing.\n"
-                              "Urg'u berish: <code>*so'z*</code> · Teg qo'shish: <code>[Tezkor] Sarlavha</code>")
-    await m.answer("⏳ Tayyorlanmoqda…")
-    await _send_news(bot, m.from_user.id)
+                              "Urg'u: <code>*so'z*</code> · Teg: <code>[Tezkor] Sarlavha</code> · "
+                              "Havola: oxiriga maqola manzilini qo'shing")
+    await _send_news(bot, m.from_user.id, st)
 
 
 @admin.message(F.text & F.func(lambda m: m.from_user.id in NEWS_WAIT and not m.text.startswith("/")))
 async def news_text(m: Message, bot: Bot):
-    NEWS_WAIT.discard(m.from_user.id)
-    st = NEWS.get(m.from_user.id)
+    st = NEWS_WAIT.pop(m.from_user.id, None)
     if not st:
         return
-    st["tag"], st["text"] = _parse_caption(m.text)
-    await _send_news(bot, m.from_user.id)
+    tag, text, link = _parse_caption(m.text)
+    st = {**st, "tag": tag or st.get("tag", ""), "text": text, "link": link or st.get("link", "")}
+    await _send_news(bot, m.from_user.id, st)
+
+
+def _state(c: CallbackQuery) -> dict | None:
+    return NEWS_MSG.get((c.from_user.id, c.message.message_id))
 
 
 @router.callback_query(F.data.startswith("nw:"))
 async def news_cb(c: CallbackQuery, bot: Bot):
     if c.from_user.id not in ADMIN_IDS:
         return await c.answer("Ruxsat yo'q", show_alert=True)
-    st = NEWS.get(c.from_user.id)
+    st = _state(c)
     if not st:
-        return await c.answer("Rasmni qaytadan yuboring", show_alert=True)
+        return await c.answer("Bu rasm eskirgan — rasmni qaytadan yuboring", show_alert=True)
     parts = c.data.split(":")
     if parts[1] == "text":
-        NEWS_WAIT.add(c.from_user.id)
+        NEWS_WAIT[c.from_user.id] = st
         await c.answer()
-        return await c.message.answer("✏️ Yangi sarlavhani yozing:")
-    st[parts[1]] = parts[2]
+        return await c.message.answer("✏️ Yangi sarlavhani yozing (havola o'zgarmaydi):")
     await c.answer("Tayyorlanmoqda…")
-    await _send_news(bot, c.from_user.id)
+    await _send_news(bot, c.from_user.id, {**st, parts[1]: parts[2]})
 
 
 @router.callback_query(F.data.in_({"nwpub", "nwback"}) | F.data.startswith("nwp:") | F.data.startswith("nwy:"))
 async def news_publish(c: CallbackQuery, bot: Bot):
-    """Tayyor rasmni kanalga forward belgisisiz (copy) yuborish."""
+    """Tayyor rasmni kanalga forward belgisisiz yuborish (faqat tasdiqlangandan keyin)."""
     if c.from_user.id not in ADMIN_IDS:
         return await c.answer("Ruxsat yo'q", show_alert=True)
-    st = NEWS.setdefault(c.from_user.id, {"style": "full", "fmt": "kvadrat", "text": ""})
+    st = _state(c) or {"style": "full", "fmt": "kvadrat", "text": ""}
+    back_kb = news_kb(st) if _state(c) else None
     if c.data == "nwback":
-        await c.message.edit_reply_markup(reply_markup=news_kb(st) if st.get("file_id") else None)
+        await c.message.edit_reply_markup(reply_markup=back_kb)
         return await c.answer()
     if c.data == "nwpub":
         st["targets"] = _targets()
@@ -854,28 +897,39 @@ async def news_publish(c: CallbackQuery, bot: Bot):
     if not chosen:
         return await c.answer("Kanal topilmadi, qaytadan urinib ko'ring", show_alert=True)
     if c.data.startswith("nwp:"):
-        # tasdiqlash
-        names = ", ".join(t[1] for t in chosen)
         kb = InlineKeyboardBuilder()
         kb.button(text="✅ Ha, yuborish", callback_data=f"nwy:{key}")
         kb.button(text="◀️ Bekor qilish", callback_data="nwback")
         kb.adjust(2)
         await c.message.edit_reply_markup(reply_markup=kb.as_markup())
-        return await c.answer(f"{names} ga yuborilsinmi?", show_alert=False)
-    # nwy: — yuborish
+        return await c.answer(f"{', '.join(t[1] for t in chosen)} ga yuborilsinmi?")
     await c.answer("Yuborilmoqda…")
     ok, fail = [], []
     for chat_id, title, uname in chosen:
         try:
-            # forward belgisisiz, tugmalarsiz toza post: shu rasm + shu qalin izoh
+            # forward belgisisiz, tugmalarsiz toza post: shu rasm + shu izoh (sarlavha va havola)
             m = await bot.send_photo(chat_id, c.message.photo[-1].file_id, caption=c.message.html_text)
             link = f"https://t.me/{uname}/{m.message_id}" if uname else ""
             ok.append(f"✅ <a href=\"{link}\">{html.escape(title)}</a>" if link else f"✅ {html.escape(title)}")
         except Exception as e:
             fail.append(f"❌ {html.escape(title)} — {html.escape(str(e))[:80]}")
         await asyncio.sleep(0.1)
-    await c.message.edit_reply_markup(reply_markup=news_kb(st) if st.get("file_id") else None)
+    await c.message.edit_reply_markup(reply_markup=back_kb)
     await c.message.answer("\n".join(ok + fail) or "Hech narsa yuborilmadi", disable_web_page_preview=True)
+
+
+@admin.message(Command("sayt"))
+async def a_site(m: Message, command: CommandObject):
+    """/sayt on | off — saytdagi yangi maqolalarni kuzatish."""
+    from . import site
+    arg = (command.args or "").strip().lower()
+    if arg in ("on", "off"):
+        db.kv_set("site_watch", arg)
+    st = "✅ yoqilgan" if site.enabled() else "❌ o'chirilgan"
+    await m.answer(f"🌐 Sayt kuzatuvi: {st}\nSayt: {site.SITE_URL}\n"
+                   f"Oxirgi ko'rilgan maqola: {db.kv_get('site_last_id') or '—'}\n\n"
+                   "Yangi maqola chiqsa, tayyor rasm sizga keladi; kanalga faqat «📤 Kanalga yuborish» "
+                   "bosilganda chiqadi.\nO'chirish: /sayt off · Yoqish: /sayt on")
 
 
 @admin.message(Command("admin"))
@@ -885,6 +939,7 @@ async def a_help(m: Message):
         "⚙️ Admin panel — menyudagi tugma (rang, kanallar, statistika)\n"
         "📰 Yangilik rasmi — rasm yuboring, izohiga sarlavha yozing (urg'u: *so'z*, teg: [Tezkor])\n"
         "/stat — statistika\n"
+        "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
         "/tekshir namangan 2026-10-07 — vaqt va manbasini ko'rish\n"
         "/oylik 2026-11 + jadval — yangi oy vaqtlarini kiritish\n"
         "/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:01 17:50 19:04 — vaqtni qo'lda kiritish\n"
