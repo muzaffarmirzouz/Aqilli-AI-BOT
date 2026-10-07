@@ -22,7 +22,7 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
 
 ## 📘 Facebook va 📸 Instagram'ga joylash
 «📤 Kanalga yuborish» ro'yxatida Telegram kanallaridan keyin «📘 Facebook», «📸 Instagram» va «🌐 Hammasiga» chiqadi.
-- **Facebook:** rasm + sarlavha + «БАТАФСИЛ ЎҚИШ 👉 havola» + sahifalar havolalari (Telegram'dagidek)
+- **Facebook:** rasm + sarlavha + «👉 maqola havolasi» (boshqa qo'shimchasiz)
 - **Instagram:** rasm + sarlavha + maqolaning **to'liq matni** (saytdan avtomatik olinadi, «Теглар», «Мавзуга доир» va boshqa sayt bloklarisiz).
   Instagram izohi 2200 belgigacha — uzun matn qisqartiriladi. Yuborishdan oldin bot Instagram izohini sizga ko'rsatadi.
 - Qo'lda yuborilgan rasmda: izohning **birinchi qatori — sarlavha**, keyingi qatorlar — Instagram uchun to'liq matn.
@@ -32,7 +32,7 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
   bot uni haftada bir o'zi yangilaydi. `META_IG_TOKEN` bo'lmasa — sahifaga ulangan Instagram ishlatiladi.
 - Instagram asosiy sahifaga ulanmasa — boshqa (portfelsiz) sahifangizga ulang va `META_IG_PAGE_ID`, `META_IG_PAGE_TOKEN` qo'ying
   (token: Graph API Explorer → `me/accounts` → o'sha sahifaning access_token).
-- Tekshirish: `/meta`
+- Tekshirish: `/meta`; maqoladan qanday matn olinishini ko'rish: `/matn https://namanganliklar.uz/news/123`
 
 ## 🌐 Saytdagi yangi maqolalar (avtomatik)
 Bot namanganliklar.uz ni har 90 soniyada tekshiradi. Yangi maqola chiqsa — sarlavha va rasmdan tayyor yangilik

@@ -70,6 +70,11 @@ _STOP_WORDS = [
 _STOP = re.compile("|".join(re.escape(w) for w in _STOP_WORDS) + r"|©", re.I)
 # element matni aynan shu so'z bilan boshlanadigan joy:  >  Теглар:
 _STOP_TAG = re.compile(r">\s*(?:" + "|".join(re.escape(w) for w in _STOP_WORDS) + r"|©)", re.I)
+# Bular faqat maqoladan KEYIN keladi — har doim shu yerda kesamiz
+_HARD_WORDS = ["Теглар", "Teglar", "Мавзуга доир", "Mavzuga doir", "Энг кўп ўқилган", "Eng ko'p o'qilgan",
+               "Муҳаррир танлови", "Muharrir tanlovi", "Тасодифий хабарлар", "Tasodifiy xabarlar",
+               "Изоҳлар", "Developed by"]
+_HARD_TAG = re.compile(r">\s*(?:" + "|".join(re.escape(w) for w in _HARD_WORDS) + r"|©)", re.I)
 # sana va ko'rishlar soni qatori: "2026-10-07 02:21 245"
 _META_LINE = re.compile(r"^\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2})?(\s+\d+)?$")
 
@@ -84,30 +89,64 @@ def _ok_para(t: str) -> bool:
     return len(t) >= 25 and not _META_LINE.match(t) and not _STOP.match(t)
 
 
+def _norm(t: str) -> str:
+    return re.sub(r"\W+", "", (t or "").lower())
+
+
 def parse_body(page: str) -> str:
-    """Maqolaning to'liq matni: sarlavhadan (h1) keyin, «Теглар / Улашиш / Мавзуга доир…» bloklarigacha.
-    Topilmasa — og:description."""
+    """Maqolaning to'liq matni: sarlavhadan (h1) keyingi paragraflar.
+    «Теглар / Улашиш / Мавзуга доир…» bloklari faqat matn BOSHLANGANDAN keyin uchrasa — o'sha joyda to'xtaydi.
+    Matn topilmasa — bo'sh qator (sarlavhani takrorlamaymiz)."""
+    title = _meta(page, "og:title")
     page = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", "", page, flags=re.S | re.I)
-    m = re.search(r"<h1[^>]*>.*?</h1>", page, re.I | re.S)
-    tail = page[m.end():] if m else page
-    cut = _STOP_TAG.search(tail)
-    if cut:
-        tail = tail[:cut.start()]
-    paras = []
-    for frag in re.findall(r"<p[^>]*>(.*?)</p>", tail, re.S | re.I):
-        t = _clean(frag)
-        if _ok_para(t):
-            paras.append(t)
-        if sum(len(x) for x in paras) > 6000:
+    # sarlavha h1'ini topamiz (sahifada logotip h1 ham bo'lishi mumkin)
+    h1s = list(re.finditer(r"<h1[^>]*>(.*?)</h1>", page, re.I | re.S))
+    pick = None
+    for h in h1s:
+        if title and _norm(_clean(h.group(1)))[:30] and _norm(_clean(h.group(1)))[:30] in _norm(title):
+            pick = h
             break
-    body = "\n\n".join(paras)
-    if not body:
+    if pick is None and h1s:
+        pick = h1s[-1] if len(h1s) > 1 else h1s[0]
+    tail = page[pick.end():] if pick else page
+    # «Теглар», «Мавзуга доир», footer… — maqola tugaganining aniq belgisi: shu yerda kesamiz
+    hard = _HARD_TAG.search(tail)
+    if hard:
+        tail = tail[:hard.start()]
+    ntitle = _norm(title)
+
+    def collect(chunks):
+        """chunks: [(pos, text)] tartib bilan. Matn boshlangach, stop-blok uchrasa to'xtaymiz."""
+        stops = [m.start() for m in _STOP_TAG.finditer(tail)]
+        out, last_end = [], None
+        for pos, end_, t in chunks:
+            if out and any(last_end <= sp < pos for sp in stops):
+                break
+            if _ok_para(t) and _norm(t) != ntitle:
+                out.append(t)
+                last_end = end_
+            elif out:
+                last_end = end_
+            if sum(len(x) for x in out) > 6000:
+                break
+        return out
+
+    paras = collect([(m.start(), m.end(), _clean(m.group(1)))
+                     for m in re.finditer(r"<p[^>]*>(.*?)</p>", tail, re.S | re.I)])
+    if not paras:
         # <p> yo'q bo'lsa: div/br bo'yicha qatorlar
-        text = re.sub(r"<(br|/div|/p|/li|/h\d)[^>]*>", "\n", tail, flags=re.I)
-        text = html.unescape(re.sub(r"<[^>]+>", "", text))
-        lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.split("\n")]
-        body = "\n\n".join(ln for ln in lines if len(ln) >= 40 and _ok_para(ln))[:6000]
-    return body or _meta(page, "og:description")
+        chunks, pos = [], 0
+        for part in re.split(r"(<(?:br|/div|/p|/li|/h\d)[^>]*>)", tail, flags=re.I):
+            t = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", part))).strip()
+            if len(t) >= 40:
+                chunks.append((pos, pos + len(part), t))
+            pos += len(part)
+        paras = collect(chunks)
+    body = "\n\n".join(paras)[:6000]
+    if not body:
+        d = _meta(page, "og:description")
+        body = d if d and _norm(d) != ntitle and not ntitle.startswith(_norm(d)[:40]) else ""
+    return body
 
 
 async def fetch_article(session, news_id: int):

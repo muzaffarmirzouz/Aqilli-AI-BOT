@@ -797,14 +797,11 @@ def _socials_plain() -> str:
 
 
 def fb_caption(st: dict) -> str:
-    """Facebook: Telegram'dagidek — sarlavha, «БАТАФСИЛ ЎҚИШ» havolasi, sahifalar."""
+    """Facebook: faqat sarlavha va maqola havolasi."""
     parts = [_plain_title(st.get("text", ""))]
     if st.get("link"):
-        parts.append(f"БАТАФСИЛ ЎҚИШ\n👉 {st['link']}")
-    soc = _socials_plain()
-    if soc:
-        parts.append(soc)
-    return "\n\n".join(parts)
+        parts.append(f"👉 {st['link']}")
+    return "\n\n".join(p for p in parts if p)
 
 
 def ig_caption(st: dict) -> str:
@@ -1010,6 +1007,27 @@ async def news_publish(c: CallbackQuery, bot: Bot):
         await asyncio.sleep(0.1)
     await c.message.edit_reply_markup(reply_markup=back_kb)
     await c.message.answer("\n".join(ok + fail) or "Hech narsa yuborilmadi", disable_web_page_preview=True)
+
+
+@admin.message(Command("matn"))
+async def a_matn(m: Message, command: CommandObject):
+    """Saytdagi maqoladan bot qanday matn olayotganini ko'rsatadi: /matn https://namanganliklar.uz/news/123"""
+    import aiohttp
+    from . import site
+    mm = re.search(r"/news/(\d+)", command.args or "")
+    if not mm:
+        await m.answer("Masalan: <code>/matn https://namanganliklar.uz/news/28247</code>")
+        return
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25),
+                                         headers={"User-Agent": "Mozilla/5.0"}) as s:
+            _url, title, _img, body = await site.fetch_article(s, int(mm.group(1)))
+    except Exception as e:
+        await m.answer(f"❌ Xato: {html.escape(str(e))}")
+        return
+    body = body or "(matn topilmadi)"
+    await m.answer(f"<b>{html.escape(title)}</b>\n\n{html.escape(body[:3500])}\n\n"
+                   f"<i>{len(body)} belgi</i>")
 
 
 @admin.message(Command("meta"))
