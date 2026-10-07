@@ -800,7 +800,7 @@ def fb_caption(st: dict) -> str:
     """Facebook: faqat sarlavha va maqola havolasi."""
     parts = [_plain_title(st.get("text", ""))]
     if st.get("link"):
-        parts.append(f"👉 {st['link']}")
+        parts.append(f"БАТАФСИЛ ЎҚИШ\n👉 {st['link']}")
     return "\n\n".join(p for p in parts if p)
 
 
@@ -991,9 +991,6 @@ async def news_publish(c: CallbackQuery, bot: Bot):
     if not chosen:
         return await c.answer("Kanal topilmadi, qaytadan urinib ko'ring", show_alert=True)
     if c.data.startswith("nwp:"):
-        if any(t[0] == "ig" for t in chosen):
-            prev = ig_caption(await _st_for_meta(c, st))
-            await c.message.answer("📸 <b>Instagram izohi shunday bo'ladi:</b>\n\n" + html.escape(prev[:3500], quote=False))
         kb = InlineKeyboardBuilder()
         kb.button(text="✅ Ha, yuborish", callback_data=f"nwy:{key}")
         kb.button(text="◀️ Bekor qilish", callback_data="nwback")

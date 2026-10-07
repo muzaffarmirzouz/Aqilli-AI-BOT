@@ -22,9 +22,9 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
 
 ## 📘 Facebook va 📸 Instagram'ga joylash
 «📤 Kanalga yuborish» ro'yxatida Telegram kanallaridan keyin «📘 Facebook», «📸 Instagram» va «🌐 Hammasiga» chiqadi.
-- **Facebook:** rasm + sarlavha + «👉 maqola havolasi» (boshqa qo'shimchasiz)
+- **Facebook:** rasm + sarlavha + «БАТАФСИЛ ЎҚИШ 👉 maqola havolasi»
 - **Instagram:** rasm + sarlavha + maqolaning **to'liq matni** (saytdan avtomatik olinadi, «Теглар», «Мавзуга доир» va boshqa sayt bloklarisiz).
-  Instagram izohi 2200 belgigacha — uzun matn qisqartiriladi. Yuborishdan oldin bot Instagram izohini sizga ko'rsatadi.
+  Instagram izohi 2200 belgigacha — uzun matn qisqartiriladi.
 - Qo'lda yuborilgan rasmda: izohning **birinchi qatori — sarlavha**, keyingi qatorlar — Instagram uchun to'liq matn.
 - Sozlash (Railway): `META_PAGE_ID`, `META_PAGE_TOKEN` (sahifaning uzoq muddatli tokeni).
 - Instagram: `META_IG_TOKEN` — Instagram'ning o'z tokeni (ilova paneli → Instagram API → «API setup with Instagram login»
