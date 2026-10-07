@@ -174,6 +174,50 @@ def _brand_pill(base: Image.Image, x, y, h):
     return w
 
 
+SOCIAL_HANDLE = os.getenv("SOCIAL_HANDLE", "@namanganliklar_uz")
+
+
+def _social_icons(canvas: Image.Image, x, y, size=30, gap=10):
+    """Telegram, Instagram, YouTube belgilari (chizib yasaladi). x,y — chap-yuqori. Oxirgi x ni qaytaradi."""
+    S = _s(size)
+    def tile():
+        return Image.new("RGBA", (S, S), (0, 0, 0, 0))
+
+    # Telegram: ko'k doira + oq qog'oz samolyot
+    t = tile(); d = ImageDraw.Draw(t)
+    d.ellipse([0, 0, S - 1, S - 1], fill=(42, 171, 238))
+    P = lambda a, b: (S * (0.5 + a), S * (0.5 + b))
+    d.polygon([P(-0.30, 0.02), P(0.27, -0.22), P(0.17, 0.27), P(0.03, 0.15)], fill=WHITE)
+    d.polygon([P(0.03, 0.15), P(-0.03, 0.27), P(-0.04, 0.10)], fill=(200, 225, 245))
+    tg = t
+    # Instagram: gradientli yumaloq kvadrat + kamera chizig'i
+    g = Image.new("RGB", (S, S))
+    gd = ImageDraw.Draw(g)
+    cols = [(254, 218, 117), (250, 126, 30), (214, 41, 118), (150, 47, 191), (79, 91, 213)]
+    for i in range(S):
+        tt = i / (S - 1) * (len(cols) - 1)
+        k = min(int(tt), len(cols) - 2); f = tt - k
+        c = tuple(int(cols[k][j] + (cols[k + 1][j] - cols[k][j]) * f) for j in range(3))
+        gd.line([(0, S - 1 - i), (S - 1, S - 1 - i)], fill=c)
+    m = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(m).rounded_rectangle([0, 0, S - 1, S - 1], radius=S * 0.28, fill=255)
+    ig = tile(); ig.paste(g, (0, 0), m)
+    d = ImageDraw.Draw(ig); lw = max(2, S // 14)
+    d.rounded_rectangle([S * 0.2, S * 0.2, S * 0.8, S * 0.8], radius=S * 0.17, outline=WHITE, width=lw)
+    d.ellipse([S * 0.36, S * 0.36, S * 0.64, S * 0.64], outline=WHITE, width=lw)
+    d.ellipse([S * 0.66, S * 0.27, S * 0.73, S * 0.34], fill=WHITE)
+    # YouTube: qizil yumaloq to'rtburchak + oq uchburchak
+    yt = tile(); d = ImageDraw.Draw(yt)
+    d.rounded_rectangle([0, S * 0.14, S - 1, S * 0.86], radius=S * 0.22, fill=(255, 0, 0))
+    d.polygon([(S * 0.40, S * 0.33), (S * 0.40, S * 0.67), (S * 0.69, S * 0.5)], fill=WHITE)
+
+    cx = x
+    for icon in (tg, ig, yt):
+        canvas.alpha_composite(icon, (_s(cx), _s(y)))
+        cx += size + gap
+    return cx - gap
+
+
 SLOGAN = os.getenv("NEWS_SLOGAN", "Тезкор, Холис, Ишончли ахборот манбаи")
 
 
@@ -190,7 +234,7 @@ def _slogan(dr, x, y, size, align="r", name=True):
 
 
 def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "kvadrat",
-                d: date | None = None, tag: str = "") -> bytes:
+                d: date | None = None, tag: str = "", usd: float | None = None) -> bytes:
     W, H = SIZES.get(fmt, SIZES["kvadrat"])
     photo = Image.open(io.BytesIO(photo_bytes))
     text = " ".join(text.split())
@@ -290,10 +334,30 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
             dr.text((_s(76 + tw / 2), _s(yy)), tag.upper(), font=tf, fill=WHITE, anchor="mm")
         # pastki qator
         dr.line([(_s(48), _s(foot - 22)), (_s(W - 48), _s(foot - 22))], fill=(255, 255, 255, 70), width=_s(2))
-        dr.text((_s(48), _s(foot + 8)), d.strftime("%d.%m.%Y"), font=font("semi", 21),
-                fill=(255, 255, 255, 200), anchor="ls")
-        # o'ng tomonda: «Namanganliklar.uz · Тезкор, Холис, Ишончли ахборот манбаи»
-        _slogan(dr, W - 48, foot + 8, 17, "r")
+        # chap pastda: sana · 1 USD = ... so'm (Markaziy bank, kunlik)
+        fs = font("semi", 19)
+        x = 48
+        date_s = d.strftime("%d.%m.%Y")
+        dr.text((_s(x), _s(foot + 9)), date_s, font=fs, fill=(255, 255, 255, 215), anchor="ls")
+        x += dr.textlength(date_s, font=fs) / K
+        if usd:
+            sep = "   ·   "
+            dr.text((_s(x), _s(foot + 9)), sep, font=fs, fill=(255, 255, 255, 120), anchor="ls")
+            x += dr.textlength(sep, font=fs) / K
+            rate = f"{usd:,.0f}".replace(",", " ")
+            for t, f_, col in (("1 USD", font("bold", 19), HL), (f" = {rate} so'm", fs, (255, 255, 255, 215))):
+                dr.text((_s(x), _s(foot + 9)), t, font=f_, fill=col, anchor="ls")
+                x += dr.textlength(t, font=f_) / K
+        # o'ng pastda: ijtimoiy tarmoq belgilari + Namanganliklar.uz
+        fb = font("bold", 19)
+        name_w = (dr.textlength("Namanganliklar", font=fb) + dr.textlength(".uz", font=fb)) / K
+        icons_w = 3 * 26 + 2 * 8
+        ix0 = W - 48 - name_w - 12 - icons_w
+        _social_icons(canvas, ix0, foot - 10, 26, 8)
+        dr = ImageDraw.Draw(canvas)
+        nx = W - 48 - name_w
+        dr.text((_s(nx), _s(foot + 9)), "Namanganliklar", font=fb, fill=WHITE, anchor="ls")
+        dr.text((_s(nx + dr.textlength("Namanganliklar", font=fb) / K), _s(foot + 9)), ".uz", font=fb, fill=HL, anchor="ls")
 
     out = canvas.convert("RGB").resize((W, H), Image.LANCZOS)
     buf = io.BytesIO()

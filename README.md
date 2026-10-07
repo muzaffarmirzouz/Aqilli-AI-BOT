@@ -14,6 +14,9 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
 - Urg'u (qizil): `*so'z*` · Teg (qizil yorliq): `[Tezkor] Sarlavha` · Kirill va lotin ikkalasi ham ishlaydi
 - Yagona uslub — «To'liq rasm». Rasm ostidagi tugmalar: format (1:1 / 4:5), matnni o'zgartirish
 - Oxirgi tanlangan format eslab qolinadi
+- Izoh: qalin sarlavha → «БАТАФСИЛ ЎҚИШ 👉 havola» → «Бизнинг саҳифаларга обуна бўлинг» + Telegram | Instagram | YouTube havolalari.
+  Havolalar: `SOCIAL_TELEGRAM` (standart https://t.me/Namanganliklar_uz), `SOCIAL_INSTAGRAM`, `SOCIAL_YOUTUBE`
+- Rasmning chap pastida Telegram, Instagram, YouTube belgilari va sahifa nomi: `SOCIAL_HANDLE` (standart `@namanganliklar_uz`); sana — chap yuqorida
 - 📤 **Kanalga yuborish** — @Namanganliklar_uz yoki bot ulangan istalgan kanalga (yoki hammasiga) forward belgisisiz, toza post qilib yuboradi; tasdiqlashdan keyin yuboriladi, post havolasi qaytadi
   (bot o'sha kanalda «Xabar joylash» huquqiga ega admin bo'lishi kerak)
 

@@ -1,6 +1,7 @@
 import asyncio
 import calendar
 import html
+import os
 import logging
 import re
 from datetime import date, timedelta
@@ -746,13 +747,38 @@ def _parse_caption(text: str) -> tuple[str, str, str]:
     return tag, title, link
 
 
+SOCIAL = [  # (nomi, havola, oddiy emoji, premium emoji ID o'zgaruvchisi)
+    ("Telegram", os.getenv("SOCIAL_TELEGRAM", "https://t.me/Namanganliklar_uz"), "✈️", "EMOJI_TELEGRAM"),
+    ("Instagram", os.getenv("SOCIAL_INSTAGRAM", ""), "📸", "EMOJI_INSTAGRAM"),
+    ("YouTube", os.getenv("SOCIAL_YOUTUBE", ""), "▶️", "EMOJI_YOUTUBE"),
+]
+
+
+def _icon(emoji: str, env: str) -> str:
+    """Premium (custom) emoji ID berilgan bo'lsa — premium ikonka, aks holda oddiy emoji."""
+    eid = os.getenv(env, "").strip()
+    return f'<tg-emoji emoji-id="{eid}">{emoji}</tg-emoji>' if eid.isdigit() else emoji
+
+
+def _a(url: str, text: str) -> str:
+    return f'<a href="{html.escape(url, quote=True)}">{html.escape(text, quote=False)}</a>' if url else \
+        html.escape(text, quote=False)
+
+
 def news_caption(text: str, link: str = "") -> str:
+    """Sarlavha + «БАТАФСИЛ ЎҚИШ» havolasi + ijtimoiy tarmoqlar (hammasi qalin)."""
     plain = " ".join((text or "").replace("*", "").split())
-    cap = f"<b>{html.escape(plain, quote=False)}</b>"
+    parts = [f"<b>{html.escape(plain, quote=False)}</b>"]
     if link:
-        short = re.sub(r"^https?://(www\.)?", "", link)
-        cap += f"\n\n🔗 Batafsil: <a href=\"{html.escape(link, quote=True)}\">{html.escape(short)}</a>"
-    return cap[:1024]
+        parts.append(f"<b>БАТАФСИЛ ЎҚИШ</b>\n<b>👉{_a(link, link)}</b>")
+    socials = " | ".join(_a(url, name) for name, url, _em, _env in SOCIAL)
+    parts.append(f"<b>Бизнинг саҳифаларга обуна бўлинг</b>\n<b>{socials}</b>")
+    cap = "\n\n".join(parts)
+    if len(cap) > 1024:  # Telegram izoh chegarasi — sarlavhani qisqartiramiz
+        over = len(cap) - 1024 + 1
+        short = html.escape(plain[: max(20, len(plain) - over - 10)], quote=False) + "…"
+        cap = "\n\n".join([f"<b>{short}</b>"] + parts[1:])
+    return cap
 
 
 def news_kb(st: dict):
@@ -801,8 +827,13 @@ async def _send_news(bot: Bot, uid: int, st: dict, intro: str = ""):
     """Rasmni tayyorlab adminga yuboradi va shu xabarga holatni bog'laydi."""
     st["style"] = "full"  # yagona uslub
     src = await _src_bytes(bot, st)
+    usd = None
+    try:  # bugungi Markaziy bank kursi (20 daqiqa keshlanadi)
+        usd = (await sources.get_rates(today())).get("USD", {}).get("rate")
+    except Exception:
+        pass
     img = await asyncio.to_thread(news.render_news, src, st["text"], st["style"], st["fmt"],
-                                  today(), st.get("tag", ""))
+                                  today(), st.get("tag", ""), usd)
     db.kv_set(f"news_pref:{uid}", f"{st['style']}|{st['fmt']}")
     if intro:
         await bot.send_message(uid, intro, disable_web_page_preview=True)
