@@ -927,13 +927,26 @@ async def news_text(m: Message, bot: Bot):
     await _send_news(bot, m.from_user.id, st)
 
 
-def _st_for_meta(c: CallbackQuery, st: dict) -> dict:
-    """Facebook/Instagram uchun ma'lumot: holat bo'lsa — o'sha, bo'lmasa izohdan."""
-    if st.get("text"):
-        return st
-    cap = (c.message.caption or "").split("\n")
-    link = next((ln.strip("👉 ").strip() for ln in cap if ln.strip().startswith("👉")), "")
-    return {"text": cap[0] if cap else "", "link": link, "body": ""}
+async def _st_for_meta(c: CallbackQuery, st: dict) -> dict:
+    """Facebook/Instagram uchun ma'lumot. Maqola matni yo'q bo'lsa (masalan bot qayta ishga tushgan),
+    havoladagi maqoladan saytdan qayta olinadi."""
+    if not st.get("text"):
+        cap = (c.message.caption or "").split("\n")
+        link = next((ln.strip().lstrip("👉").strip() for ln in cap if "/news/" in ln), "")
+        st = {**st, "text": cap[0] if cap else "", "link": st.get("link") or link}
+    if not (st.get("body") or "").strip():
+        mm = re.search(r"/news/(\d+)", st.get("link") or "")
+        if mm:
+            try:
+                import aiohttp
+                from . import site
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25),
+                                                 headers={"User-Agent": "Mozilla/5.0"}) as s:
+                    _u, _t, _i, body = await site.fetch_article(s, int(mm.group(1)))
+                st["body"] = body or ""
+            except Exception as e:
+                log.warning("maqola matni olinmadi: %s", e)
+    return st
 
 
 def _state(c: CallbackQuery) -> dict | None:
@@ -979,7 +992,7 @@ async def news_publish(c: CallbackQuery, bot: Bot):
         return await c.answer("Kanal topilmadi, qaytadan urinib ko'ring", show_alert=True)
     if c.data.startswith("nwp:"):
         if any(t[0] == "ig" for t in chosen):
-            prev = ig_caption(_st_for_meta(c, st))
+            prev = ig_caption(await _st_for_meta(c, st))
             await c.message.answer("📸 <b>Instagram izohi shunday bo'ladi:</b>\n\n" + html.escape(prev[:3500], quote=False))
         kb = InlineKeyboardBuilder()
         kb.button(text="✅ Ha, yuborish", callback_data=f"nwy:{key}")
@@ -993,7 +1006,7 @@ async def news_publish(c: CallbackQuery, bot: Bot):
         try:
             if chat_id in ("fb", "ig"):
                 img = (await bot.download(c.message.photo[-1].file_id)).read()
-                mst = _st_for_meta(c, st)
+                mst = await _st_for_meta(c, st)
                 url = await (meta.post_facebook(img, fb_caption(mst)) if chat_id == "fb"
                              else meta.post_instagram(img, ig_caption(mst)))
                 ok.append(f"✅ <a href=\"{html.escape(url, quote=True)}\">{html.escape(title)}</a>")
