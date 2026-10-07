@@ -13,7 +13,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated,
                            KeyboardButton, Message, ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from . import db, jobs, news, prayer_table, sources, subscribe, texts
+from . import db, jobs, meta, news, prayer_table, sources, subscribe, texts
 from .config import AD_CONTACT, ADMIN_IDS, BRAND, REQUIRED_CHANNEL, PRAYER_KEYS, SEND_AT
 from .poster import DEFAULT_THEME, THEMES, default_logo
 from .regions import DEFAULT_REGION, REGIONS
@@ -747,6 +747,12 @@ def _parse_caption(text: str) -> tuple[str, str, str]:
     return tag, title, link
 
 
+def _split_body(title: str) -> tuple[str, str]:
+    """Birinchi qator — sarlavha, qolgani — to'liq matn (Instagram uchun)."""
+    head, _, rest = title.strip().partition("\n")
+    return head.strip(), rest.strip()
+
+
 SOCIAL = [  # (nomi, havola, oddiy emoji, premium emoji ID o'zgaruvchisi)
     ("Telegram", os.getenv("SOCIAL_TELEGRAM", "https://t.me/Namanganliklar_uz"), "✈️", "EMOJI_TELEGRAM"),
     ("Instagram", os.getenv("SOCIAL_INSTAGRAM", ""), "📸", "EMOJI_INSTAGRAM"),
@@ -781,6 +787,43 @@ def news_caption(text: str, link: str = "") -> str:
     return cap
 
 
+def _plain_title(text: str) -> str:
+    return " ".join((text or "").replace("*", "").split())
+
+
+def _socials_plain() -> str:
+    lines = [f"{name}: {url}" for name, url, _e, _v in SOCIAL if url]
+    return "Бизнинг саҳифаларга обуна бўлинг\n" + "\n".join(lines) if lines else ""
+
+
+def fb_caption(st: dict) -> str:
+    """Facebook: Telegram'dagidek — sarlavha, «БАТАФСИЛ ЎҚИШ» havolasi, sahifalar."""
+    parts = [_plain_title(st.get("text", ""))]
+    if st.get("link"):
+        parts.append(f"БАТАФСИЛ ЎҚИШ\n👉 {st['link']}")
+    soc = _socials_plain()
+    if soc:
+        parts.append(soc)
+    return "\n\n".join(parts)
+
+
+def ig_caption(st: dict) -> str:
+    """Instagram: sarlavha + maqolaning to'liq matni (havolalar Instagram'da bosilmaydi)."""
+    title = _plain_title(st.get("text", ""))
+    tail = []
+    if st.get("link"):
+        tail.append("Батафсил: " + re.sub(r"^https?://(www\.)?", "", st["link"]))
+    soc = _socials_plain()
+    if soc:
+        tail.append(soc)
+    tail_s = "\n\n".join(tail)
+    body = (st.get("body") or "").strip()
+    room = meta.IG_CAPTION_LIMIT - len(title) - len(tail_s) - 8
+    if len(body) > room:
+        body = body[: max(0, room - 1)].rsplit(" ", 1)[0] + "…"
+    return "\n\n".join(x for x in (title, body, tail_s) if x)
+
+
 def news_kb(st: dict):
     kb = InlineKeyboardBuilder()
     other_fmt = "vertikal" if st["fmt"] == "kvadrat" else "kvadrat"
@@ -802,15 +845,18 @@ def _targets() -> list[tuple]:
         if ch["username"] and ch["username"].lower() in seen:
             continue
         out.append((ch["id"], ch["title"] or str(ch["id"]), ch["username"]))
+    if meta.fb_enabled():
+        out.append(("fb", "📘 Facebook", None))
+        out.append(("ig", "📸 Instagram", None))
     return out
 
 
 def _pub_kb(targets):
     kb = InlineKeyboardBuilder()
-    for i, (_, title, _u) in enumerate(targets[:20]):
-        kb.button(text=f"📢 {title}", callback_data=f"nwp:{i}")
+    for i, (cid, title, _u) in enumerate(targets[:20]):
+        kb.button(text=title if cid in ("fb", "ig") else f"📢 {title}", callback_data=f"nwp:{i}")
     if len(targets) > 1:
-        kb.button(text=f"📢 Hammasiga ({len(targets)})", callback_data="nwp:all")
+        kb.button(text=f"🌐 Hammasiga ({len(targets)})", callback_data="nwp:all")
     kb.button(text="◀️ Orqaga", callback_data="nwback")
     kb.adjust(1)
     return kb.as_markup()
@@ -850,12 +896,13 @@ def _pref(uid: int) -> tuple[str, str]:
     return ("full", v[1] if len(v) > 1 and v[1] in FMT_NAMES else "kvadrat")
 
 
-async def offer_site_article(bot: Bot, title: str, link: str, image: bytes):
+async def offer_site_article(bot: Bot, title: str, link: str, image: bytes, body: str = ""):
     """Saytda yangi maqola chiqdi — har bir adminga tayyor rasmni yuboradi (kanalga emas)."""
     for uid in ADMIN_IDS:
         _, fmt = _pref(uid)
         style = "full"
-        st = {"site": True, "src": image, "file_id": None, "text": title, "style": style, "fmt": fmt, "tag": "", "link": link}
+        st = {"site": True, "src": image, "file_id": None, "text": title, "style": style, "fmt": fmt, "tag": "", "link": link,
+              "body": body}
         try:
             await _send_news(bot, uid, st, intro="🆕 <b>Saytda yangi maqola</b>")
         except Exception as e:
@@ -866,8 +913,10 @@ async def offer_site_article(bot: Bot, title: str, link: str, image: bytes):
 async def news_photo(m: Message, bot: Bot):
     fid = m.photo[-1].file_id if m.photo else m.document.file_id
     tag, text, link = _parse_caption(m.caption or "")
+    text, body = _split_body(text)
     style, fmt = _pref(m.from_user.id)
-    st = {"file_id": fid, "src": None, "text": text, "style": style, "fmt": fmt, "tag": tag, "link": link}
+    st = {"file_id": fid, "src": None, "text": text, "style": style, "fmt": fmt, "tag": tag, "link": link,
+          "body": body}
     if not text:
         NEWS_WAIT[m.from_user.id] = st
         return await m.answer("✏️ Endi sarlavhani yozing.\n"
@@ -882,8 +931,19 @@ async def news_text(m: Message, bot: Bot):
     if not st:
         return
     tag, text, link = _parse_caption(m.text)
-    st = {**st, "tag": tag or st.get("tag", ""), "text": text, "link": link or st.get("link", "")}
+    text, body = _split_body(text)
+    st = {**st, "tag": tag or st.get("tag", ""), "text": text, "link": link or st.get("link", ""),
+          "body": body or st.get("body", "")}
     await _send_news(bot, m.from_user.id, st)
+
+
+def _st_for_meta(c: CallbackQuery, st: dict) -> dict:
+    """Facebook/Instagram uchun ma'lumot: holat bo'lsa — o'sha, bo'lmasa izohdan."""
+    if st.get("text"):
+        return st
+    cap = (c.message.caption or "").split("\n")
+    link = next((ln.strip("👉 ").strip() for ln in cap if ln.strip().startswith("👉")), "")
+    return {"text": cap[0] if cap else "", "link": link, "body": ""}
 
 
 def _state(c: CallbackQuery) -> dict | None:
@@ -928,6 +988,9 @@ async def news_publish(c: CallbackQuery, bot: Bot):
     if not chosen:
         return await c.answer("Kanal topilmadi, qaytadan urinib ko'ring", show_alert=True)
     if c.data.startswith("nwp:"):
+        if any(t[0] == "ig" for t in chosen):
+            prev = ig_caption(_st_for_meta(c, st))
+            await c.message.answer("📸 <b>Instagram izohi shunday bo'ladi:</b>\n\n" + html.escape(prev[:3500], quote=False))
         kb = InlineKeyboardBuilder()
         kb.button(text="✅ Ha, yuborish", callback_data=f"nwy:{key}")
         kb.button(text="◀️ Bekor qilish", callback_data="nwback")
@@ -938,6 +1001,13 @@ async def news_publish(c: CallbackQuery, bot: Bot):
     ok, fail = [], []
     for chat_id, title, uname in chosen:
         try:
+            if chat_id in ("fb", "ig"):
+                img = (await bot.download(c.message.photo[-1].file_id)).read()
+                mst = _st_for_meta(c, st)
+                url = await (meta.post_facebook(img, fb_caption(mst)) if chat_id == "fb"
+                             else meta.post_instagram(img, ig_caption(mst)))
+                ok.append(f"✅ <a href=\"{html.escape(url, quote=True)}\">{html.escape(title)}</a>")
+                continue
             # forward belgisisiz, tugmalarsiz toza post: shu rasm + shu izoh (sarlavha va havola)
             m = await bot.send_photo(chat_id, c.message.photo[-1].file_id, caption=c.message.html_text)
             link = f"https://t.me/{uname}/{m.message_id}" if uname else ""
@@ -947,6 +1017,15 @@ async def news_publish(c: CallbackQuery, bot: Bot):
         await asyncio.sleep(0.1)
     await c.message.edit_reply_markup(reply_markup=back_kb)
     await c.message.answer("\n".join(ok + fail) or "Hech narsa yuborilmadi", disable_web_page_preview=True)
+
+
+@admin.message(Command("meta"))
+async def a_meta(m: Message):
+    """Facebook/Instagram ulanishini tekshirish."""
+    try:
+        await m.answer(await meta.check())
+    except Exception as e:
+        await m.answer(f"❌ Xato: {html.escape(str(e))}")
 
 
 @admin.message(Command("sayt"))
@@ -971,6 +1050,7 @@ async def a_help(m: Message):
         "📰 Yangilik rasmi — rasm yuboring, izohiga sarlavha yozing (urg'u: *so'z*, teg: [Tezkor])\n"
         "/stat — statistika\n"
         "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
+        "/meta — Facebook va Instagram ulanishini tekshirish\n"
         "/tekshir namangan 2026-10-07 — vaqt va manbasini ko'rish\n"
         "/oylik 2026-11 + jadval — yangi oy vaqtlarini kiritish\n"
         "/vaqt namangan 2026-10-07 04:58 06:16 12:35 16:01 17:50 19:04 — vaqtni qo'lda kiritish\n"

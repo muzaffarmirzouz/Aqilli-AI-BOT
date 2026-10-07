@@ -211,8 +211,27 @@ def _social_icons(canvas: Image.Image, x, y, size=30, gap=10):
     d.rounded_rectangle([0, S * 0.14, S - 1, S * 0.86], radius=S * 0.22, fill=(255, 0, 0))
     d.polygon([(S * 0.40, S * 0.33), (S * 0.40, S * 0.67), (S * 0.69, S * 0.5)], fill=WHITE)
 
+    # Facebook: ko'k doira + oq «f»
+    fb = tile(); d = ImageDraw.Draw(fb)
+    d.ellipse([0, 0, S - 1, S - 1], fill=(24, 119, 242))
+    lw2 = max(3, int(S * 0.13))
+    fx = S * 0.54
+    d.rectangle([fx - lw2 / 2, S * 0.30, fx + lw2 / 2, S - 1], fill=WHITE)            # ustun
+    d.arc([fx - lw2 / 2, S * 0.17, fx + S * 0.30, S * 0.47], 180, 270, fill=WHITE, width=lw2)  # tepa egilishi
+    d.rectangle([fx, S * 0.17, fx + S * 0.18, S * 0.17 + lw2], fill=WHITE)
+    d.rectangle([fx - S * 0.17, S * 0.45, fx + S * 0.17, S * 0.45 + lw2], fill=WHITE)  # ko'ndalang chiziq
+    # Veb-sayt: brend qizil doira + oq globus
+    web = tile(); d = ImageDraw.Draw(web)
+    d.ellipse([0, 0, S - 1, S - 1], fill=RED)
+    lw3 = max(2, S // 16)
+    c0, c1 = S * 0.2, S * 0.8
+    d.ellipse([c0, c0, c1, c1], outline=WHITE, width=lw3)
+    d.ellipse([S * 0.37, c0, S * 0.63, c1], outline=WHITE, width=lw3)
+    d.line([(c0, S * 0.5), (c1, S * 0.5)], fill=WHITE, width=lw3)
+    d.line([(S * 0.5, c0), (S * 0.5, c1)], fill=WHITE, width=lw3)
+
     cx = x
-    for icon in (tg, ig, yt):
+    for icon in (web, tg, ig, fb, yt):
         canvas.alpha_composite(icon, (_s(cx), _s(y)))
         cx += size + gap
     return cx - gap
@@ -351,7 +370,7 @@ def render_news(photo_bytes: bytes, text: str, style: str = "full", fmt: str = "
         # o'ng pastda: ijtimoiy tarmoq belgilari + Namanganliklar.uz
         fb = font("bold", 19)
         name_w = (dr.textlength("Namanganliklar", font=fb) + dr.textlength(".uz", font=fb)) / K
-        icons_w = 3 * 26 + 2 * 8
+        icons_w = 5 * 26 + 4 * 8
         ix0 = W - 48 - name_w - 12 - icons_w
         _social_icons(canvas, ix0, foot - 10, 26, 8)
         dr = ImageDraw.Draw(canvas)

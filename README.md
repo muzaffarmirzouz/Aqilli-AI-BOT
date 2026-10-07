@@ -16,9 +16,18 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
 - Oxirgi tanlangan format eslab qolinadi
 - Izoh: qalin sarlavha → «БАТАФСИЛ ЎҚИШ 👉 havola» → «Бизнинг саҳифаларга обуна бўлинг» + Telegram | Instagram | YouTube havolalari.
   Havolalar: `SOCIAL_TELEGRAM` (standart https://t.me/Namanganliklar_uz), `SOCIAL_INSTAGRAM`, `SOCIAL_YOUTUBE`
-- Rasmning chap pastida Telegram, Instagram, YouTube belgilari va sahifa nomi: `SOCIAL_HANDLE` (standart `@namanganliklar_uz`); sana — chap yuqorida
+- Rasm pastida: chapda sana va 1 USD kursi; o'ngda veb-sayt, Telegram, Instagram, Facebook, YouTube belgilari va Namanganliklar.uz
 - 📤 **Kanalga yuborish** — @Namanganliklar_uz yoki bot ulangan istalgan kanalga (yoki hammasiga) forward belgisisiz, toza post qilib yuboradi; tasdiqlashdan keyin yuboriladi, post havolasi qaytadi
   (bot o'sha kanalda «Xabar joylash» huquqiga ega admin bo'lishi kerak)
+
+## 📘 Facebook va 📸 Instagram'ga joylash
+«📤 Kanalga yuborish» ro'yxatida Telegram kanallaridan keyin «📘 Facebook», «📸 Instagram» va «🌐 Hammasiga» chiqadi.
+- **Facebook:** rasm + sarlavha + «БАТАФСИЛ ЎҚИШ 👉 havola» + sahifalar havolalari (Telegram'dagidek)
+- **Instagram:** rasm + sarlavha + maqolaning **to'liq matni** (saytdan avtomatik olinadi) + «Батафсил: namanganliklar.uz/news/…».
+  Instagram izohi 2200 belgigacha — uzun matn qisqartiriladi. Yuborishdan oldin bot Instagram izohini sizga ko'rsatadi.
+- Qo'lda yuborilgan rasmda: izohning **birinchi qatori — sarlavha**, keyingi qatorlar — Instagram uchun to'liq matn.
+- Sozlash (Railway): `META_PAGE_ID`, `META_PAGE_TOKEN` (sahifaning uzoq muddatli tokeni), ixtiyoriy `META_IG_USER_ID`.
+  Instagram akkaunt Business/Creator bo'lib, Facebook sahifaga ulangan bo'lishi kerak. Tekshirish: `/meta`
 
 ## 🌐 Saytdagi yangi maqolalar (avtomatik)
 Bot namanganliklar.uz ni har 90 soniyada tekshiradi. Yangi maqola chiqsa — sarlavha va rasmdan tayyor yangilik

@@ -60,10 +60,51 @@ def parse_article(page: str) -> tuple[str, str]:
     return title, image
 
 
+_STOP = re.compile(r"(Мавзуга доир|Mavzuga doir|Энг кўп ўқилган|Eng ko.p o.qilgan|Изоҳ|Izoh|Ўхшаш|O'xshash|Oʻxshash|Похожие|Комментар|Барча ҳуқуқлар|Barcha huquqlar|©)", re.I)
+
+
+def _clean(fragment: str) -> str:
+    t = re.sub(r"<br\s*/?>", "\n", fragment, flags=re.I)
+    t = re.sub(r"<[^>]+>", "", t)
+    return re.sub(r"[ \t\xa0]+", " ", html.unescape(t)).strip()
+
+
+def parse_body(page: str) -> str:
+    """Maqolaning to'liq matni: sarlavhadan (h1) keyingi <p> paragraflar.
+    Topilmasa — og:description."""
+    page = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", "", page, flags=re.S | re.I)
+    m = re.search(r"<h1[^>]*>", page, re.I)
+    tail = page[m.end():] if m else page
+    paras = []
+    for frag in re.findall(r"<p[^>]*>(.*?)</p>", tail, re.S | re.I):
+        t = _clean(frag)
+        if not t:
+            continue
+        if _STOP.search(t) and len(t) < 120:
+            break
+        if len(t) >= 25:
+            paras.append(t)
+        if sum(len(x) for x in paras) > 6000:
+            break
+    body = "\n\n".join(paras)
+    if not body:
+        # <p> yo'q bo'lsa: sarlavhadan keyingi matn, «Мавзуга доир» va shu kabilargacha
+        stop = _STOP.search(re.sub(r"<[^>]+>", " ", tail))
+        text = re.sub(r"<(br|/div|/p|/li)[^>]*>", "\n", tail, flags=re.I)
+        text = html.unescape(re.sub(r"<[^>]+>", "", text))
+        if stop:
+            cut = text.find(stop.group(0))
+            text = text[:cut] if cut > 0 else text
+        lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.split("\n")]
+        body = "\n\n".join(ln for ln in lines if len(ln) >= 40)[:6000]
+    return body or _meta(page, "og:description")
+
+
 async def fetch_article(session, news_id: int):
     url = f"{SITE_URL}/news/{news_id}"
     page = await _get(session, url)
     title, images = parse_article(page)
+    body = parse_body(page)
     img = None
     for u in images:
         if u.startswith("/"):
@@ -74,11 +115,11 @@ async def fetch_article(session, news_id: int):
                 break
         except Exception:
             continue
-    return url, title, img
+    return url, title, img, body
 
 
 async def watcher(bot, on_new, notify_admins):
-    """on_new(bot, title, link, image_bytes) — yangi maqola uchun chaqiriladi."""
+    """on_new(bot, title, link, image_bytes, body) — yangi maqola uchun chaqiriladi."""
     if not SITE_URL:
         return
     await asyncio.sleep(20)
@@ -97,9 +138,9 @@ async def watcher(bot, on_new, notify_admins):
                             new = [i for i in ids if i > int(last)][-5:]
                             for nid in new:
                                 try:
-                                    url, title, img = await fetch_article(session, nid)
+                                    url, title, img, body = await fetch_article(session, nid)
                                     if title and img:
-                                        await on_new(bot, title, url, img)
+                                        await on_new(bot, title, url, img, body)
                                     else:
                                         await notify_admins(bot, f"🆕 Saytda yangi maqola, lekin "
                                                                  f"{'rasm' if title else 'sarlavha'} topilmadi:\n{url}")
