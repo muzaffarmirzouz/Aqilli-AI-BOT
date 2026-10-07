@@ -8,7 +8,7 @@ from aiogram.types import BotCommand
 
 from bot.config import BOT_TOKEN
 from bot.handlers import offer_site_article, router
-from bot import site
+from bot import meta, site
 from bot.jobs import notify_admins
 from bot.jobs import scheduler
 from bot.prayer_table import load_dir
@@ -34,11 +34,13 @@ async def main():
     ])
     task = asyncio.create_task(scheduler(bot))
     site_task = asyncio.create_task(site.watcher(bot, offer_site_article, notify_admins))
+    ig_task = asyncio.create_task(meta.ig_refresher(lambda t: notify_admins(bot, t)))
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         task.cancel()
         site_task.cancel()
+        ig_task.cancel()
 
 
 if __name__ == "__main__":

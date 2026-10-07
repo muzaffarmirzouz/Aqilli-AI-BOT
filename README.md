@@ -26,8 +26,13 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
 - **Instagram:** rasm + sarlavha + maqolaning **to'liq matni** (saytdan avtomatik olinadi) + «Батафсил: namanganliklar.uz/news/…».
   Instagram izohi 2200 belgigacha — uzun matn qisqartiriladi. Yuborishdan oldin bot Instagram izohini sizga ko'rsatadi.
 - Qo'lda yuborilgan rasmda: izohning **birinchi qatori — sarlavha**, keyingi qatorlar — Instagram uchun to'liq matn.
-- Sozlash (Railway): `META_PAGE_ID`, `META_PAGE_TOKEN` (sahifaning uzoq muddatli tokeni), ixtiyoriy `META_IG_USER_ID`.
-  Instagram akkaunt Business/Creator bo'lib, Facebook sahifaga ulangan bo'lishi kerak. Tekshirish: `/meta`
+- Sozlash (Railway): `META_PAGE_ID`, `META_PAGE_TOKEN` (sahifaning uzoq muddatli tokeni).
+- Instagram: `META_IG_TOKEN` — Instagram'ning o'z tokeni (ilova paneli → Instagram API → «API setup with Instagram login»
+  → Generate token). Bunda Instagram Facebook sahifaga ulanishi shart emas. Token 60 kun yashaydi,
+  bot uni haftada bir o'zi yangilaydi. `META_IG_TOKEN` bo'lmasa — sahifaga ulangan Instagram ishlatiladi.
+- Instagram asosiy sahifaga ulanmasa — boshqa (portfelsiz) sahifangizga ulang va `META_IG_PAGE_ID`, `META_IG_PAGE_TOKEN` qo'ying
+  (token: Graph API Explorer → `me/accounts` → o'sha sahifaning access_token).
+- Tekshirish: `/meta`
 
 ## 🌐 Saytdagi yangi maqolalar (avtomatik)
 Bot namanganliklar.uz ni har 90 soniyada tekshiradi. Yangi maqola chiqsa — sarlavha va rasmdan tayyor yangilik
