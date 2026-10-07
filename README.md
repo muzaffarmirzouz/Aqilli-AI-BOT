@@ -22,6 +22,7 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
 
 ## 📘 Facebook va 📸 Instagram'ga joylash
 «📤 Kanalga yuborish» ro'yxatida Telegram kanallaridan keyin «📘 Facebook», «📸 Instagram» va «🌐 Hammasiga» chiqadi.
+- Yuborgandan keyin tugmalar joyida qoladi: yuborilgan joylar ✅ bilan belgilanadi, qayta bosilsa «avval yuborilgan» deydi; «🌐 Qolganlariga» — hali yuborilmaganlariga.
 - **Facebook:** rasm + sarlavha + «БАТАФСИЛ ЎҚИШ 👉 maqola havolasi»
 - **Instagram:** rasm + sarlavha + maqolaning **to'liq matni** (saytdan avtomatik olinadi, «Теглар», «Мавзуга доир» va boshqa sayt bloklarisiz).
   Instagram izohi 2200 belgigacha — uzun matn qisqartiriladi.

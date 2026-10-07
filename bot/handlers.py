@@ -841,12 +841,31 @@ def _targets() -> list[tuple]:
     return out
 
 
-def _pub_kb(targets):
+def _posted_key(c: CallbackQuery) -> str:
+    return f"posted:{c.message.chat.id}:{c.message.message_id}"
+
+
+def _posted(c: CallbackQuery) -> set[str]:
+    """Shu yangilik qaysi joylarga yuborilgani (bazada — bot qayta ishga tushsa ham eslab qoladi)."""
+    v = db.kv_get(_posted_key(c)) or ""
+    return {x for x in v.split(",") if x}
+
+
+def _mark_posted(c: CallbackQuery, keys):
+    db.kv_set(_posted_key(c), ",".join(sorted(_posted(c) | set(keys))))
+
+
+def _pub_kb(targets, posted: set[str] = frozenset()):
     kb = InlineKeyboardBuilder()
     for i, (cid, title, _u) in enumerate(targets[:20]):
-        kb.button(text=title if cid in ("fb", "ig") else f"📢 {title}", callback_data=f"nwp:{i}")
-    if len(targets) > 1:
-        kb.button(text=f"🌐 Hammasiga ({len(targets)})", callback_data="nwp:all")
+        name = title if cid in ("fb", "ig") else f"📢 {title}"
+        if str(cid) in posted:
+            name = f"✅ {title}"
+        kb.button(text=name, callback_data=f"nwp:{i}")
+    left = [t for t in targets if str(t[0]) not in posted]
+    if len(left) > 1:
+        kb.button(text=f"🌐 Qolganlariga ({len(left)})" if posted else f"🌐 Hammasiga ({len(left)})",
+                  callback_data="nwp:all")
     kb.button(text="◀️ Orqaga", callback_data="nwback")
     kb.adjust(1)
     return kb.as_markup()
@@ -975,30 +994,39 @@ async def news_publish(c: CallbackQuery, bot: Bot):
     if c.from_user.id not in ADMIN_IDS:
         return await c.answer("Ruxsat yo'q", show_alert=True)
     st = _state(c) or {"style": "full", "fmt": "kvadrat", "text": ""}
-    back_kb = news_kb(st) if _state(c) else None
+    posted = _posted(c)
     if c.data == "nwback":
-        await c.message.edit_reply_markup(reply_markup=back_kb)
+        if _state(c):
+            await c.message.edit_reply_markup(reply_markup=news_kb(st))
         return await c.answer()
     if c.data == "nwpub":
         st["targets"] = _targets()
         if not st["targets"]:
             return await c.answer("Bot hech qaysi kanalga ulanmagan", show_alert=True)
-        await c.message.edit_reply_markup(reply_markup=_pub_kb(st["targets"]))
+        await c.message.edit_reply_markup(reply_markup=_pub_kb(st["targets"], posted))
         return await c.answer("Qaysi kanalga yuboramiz?")
     targets = st.get("targets") or _targets()
+    st["targets"] = targets
     key = c.data.split(":", 1)[1]
-    chosen = targets if key == "all" else ([targets[int(key)]] if key.isdigit() and int(key) < len(targets) else [])
-    if not chosen:
-        return await c.answer("Kanal topilmadi, qaytadan urinib ko'ring", show_alert=True)
+    if key == "all":
+        chosen = [t for t in targets if str(t[0]) not in posted]
+        if not chosen:
+            return await c.answer("✅ Bu yangilik hamma joyga avval yuborilgan", show_alert=True)
+    else:
+        chosen = [targets[int(key)]] if key.isdigit() and int(key) < len(targets) else []
+        if not chosen:
+            return await c.answer("Kanal topilmadi, qaytadan urinib ko'ring", show_alert=True)
+        if str(chosen[0][0]) in posted:
+            return await c.answer(f"✅ Bu yangilik {chosen[0][1]} ga avval yuborilgan", show_alert=True)
     if c.data.startswith("nwp:"):
         kb = InlineKeyboardBuilder()
         kb.button(text="✅ Ha, yuborish", callback_data=f"nwy:{key}")
-        kb.button(text="◀️ Bekor qilish", callback_data="nwback")
+        kb.button(text="◀️ Bekor qilish", callback_data="nwpub")
         kb.adjust(2)
         await c.message.edit_reply_markup(reply_markup=kb.as_markup())
         return await c.answer(f"{', '.join(t[1] for t in chosen)} ga yuborilsinmi?")
     await c.answer("Yuborilmoqda…")
-    ok, fail = [], []
+    ok, fail, done = [], [], []
     for chat_id, title, uname in chosen:
         try:
             if chat_id in ("fb", "ig"):
@@ -1007,15 +1035,23 @@ async def news_publish(c: CallbackQuery, bot: Bot):
                 url = await (meta.post_facebook(img, fb_caption(mst)) if chat_id == "fb"
                              else meta.post_instagram(img, ig_caption(mst)))
                 ok.append(f"✅ <a href=\"{html.escape(url, quote=True)}\">{html.escape(title)}</a>")
+                done.append(str(chat_id))
                 continue
             # forward belgisisiz, tugmalarsiz toza post: shu rasm + shu izoh (sarlavha va havola)
             m = await bot.send_photo(chat_id, c.message.photo[-1].file_id, caption=c.message.html_text)
             link = f"https://t.me/{uname}/{m.message_id}" if uname else ""
             ok.append(f"✅ <a href=\"{link}\">{html.escape(title)}</a>" if link else f"✅ {html.escape(title)}")
+            done.append(str(chat_id))
         except Exception as e:
             fail.append(f"❌ {html.escape(title)} — {html.escape(str(e))[:80]}")
         await asyncio.sleep(0.1)
-    await c.message.edit_reply_markup(reply_markup=back_kb)
+    if done:
+        _mark_posted(c, done)
+    # tugmalar joyida qoladi — yuborilganlar ✅ bilan belgilanadi
+    try:
+        await c.message.edit_reply_markup(reply_markup=_pub_kb(targets, _posted(c)))
+    except Exception:
+        pass
     await c.message.answer("\n".join(ok + fail) or "Hech narsa yuborilmadi", disable_web_page_preview=True)
 
 
