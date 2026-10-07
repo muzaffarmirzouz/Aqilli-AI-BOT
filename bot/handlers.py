@@ -808,20 +808,13 @@ def fb_caption(st: dict) -> str:
 
 
 def ig_caption(st: dict) -> str:
-    """Instagram: sarlavha + maqolaning to'liq matni (havolalar Instagram'da bosilmaydi)."""
+    """Instagram: faqat sarlavha + maqolaning to'liq matni (ortiqcha havola va qo'shimchalarsiz)."""
     title = _plain_title(st.get("text", ""))
-    tail = []
-    if st.get("link"):
-        tail.append("Батафсил: " + re.sub(r"^https?://(www\.)?", "", st["link"]))
-    soc = _socials_plain()
-    if soc:
-        tail.append(soc)
-    tail_s = "\n\n".join(tail)
     body = (st.get("body") or "").strip()
-    room = meta.IG_CAPTION_LIMIT - len(title) - len(tail_s) - 8
+    room = meta.IG_CAPTION_LIMIT - len(title) - 4
     if len(body) > room:
         body = body[: max(0, room - 1)].rsplit(" ", 1)[0] + "…"
-    return "\n\n".join(x for x in (title, body, tail_s) if x)
+    return "\n\n".join(x for x in (title, body) if x)
 
 
 def news_kb(st: dict):

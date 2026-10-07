@@ -60,7 +60,18 @@ def parse_article(page: str) -> tuple[str, str]:
     return title, image
 
 
-_STOP = re.compile(r"(Мавзуга доир|Mavzuga doir|Энг кўп ўқилган|Eng ko.p o.qilgan|Изоҳ|Izoh|Ўхшаш|O'xshash|Oʻxshash|Похожие|Комментар|Барча ҳуқуқлар|Barcha huquqlar|©)", re.I)
+# Maqola matni tugagandan keyingi saytdagi bloklar (shulardan keyingi hamma narsa tashlab yuboriladi)
+_STOP_WORDS = [
+    "Теглар", "Teglar", "Улашиш", "Ulashish", "Мавзуга доир", "Mavzuga doir",
+    "Ижтимоий тармоқлар", "Ijtimoiy tarmoqlar", "Энг кўп ўқилган", "Eng ko'p o'qilgan",
+    "Жаҳон янгиликлари", "Jahon yangiliklari", "Муҳаррир танлови", "Muharrir tanlovi",
+    "Тасодифий хабарлар", "Tasodifiy xabarlar", "Ўхшаш", "Изоҳлар", "Developed by",
+]
+_STOP = re.compile("|".join(re.escape(w) for w in _STOP_WORDS) + r"|©", re.I)
+# element matni aynan shu so'z bilan boshlanadigan joy:  >  Теглар:
+_STOP_TAG = re.compile(r">\s*(?:" + "|".join(re.escape(w) for w in _STOP_WORDS) + r"|©)", re.I)
+# sana va ko'rishlar soni qatori: "2026-10-07 02:21 245"
+_META_LINE = re.compile(r"^\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2})?(\s+\d+)?$")
 
 
 def _clean(fragment: str) -> str:
@@ -69,34 +80,33 @@ def _clean(fragment: str) -> str:
     return re.sub(r"[ \t\xa0]+", " ", html.unescape(t)).strip()
 
 
+def _ok_para(t: str) -> bool:
+    return len(t) >= 25 and not _META_LINE.match(t) and not _STOP.match(t)
+
+
 def parse_body(page: str) -> str:
-    """Maqolaning to'liq matni: sarlavhadan (h1) keyingi <p> paragraflar.
+    """Maqolaning to'liq matni: sarlavhadan (h1) keyin, «Теглар / Улашиш / Мавзуга доир…» bloklarigacha.
     Topilmasa — og:description."""
     page = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", "", page, flags=re.S | re.I)
-    m = re.search(r"<h1[^>]*>", page, re.I)
+    m = re.search(r"<h1[^>]*>.*?</h1>", page, re.I | re.S)
     tail = page[m.end():] if m else page
+    cut = _STOP_TAG.search(tail)
+    if cut:
+        tail = tail[:cut.start()]
     paras = []
     for frag in re.findall(r"<p[^>]*>(.*?)</p>", tail, re.S | re.I):
         t = _clean(frag)
-        if not t:
-            continue
-        if _STOP.search(t) and len(t) < 120:
-            break
-        if len(t) >= 25:
+        if _ok_para(t):
             paras.append(t)
         if sum(len(x) for x in paras) > 6000:
             break
     body = "\n\n".join(paras)
     if not body:
-        # <p> yo'q bo'lsa: sarlavhadan keyingi matn, «Мавзуга доир» va shu kabilargacha
-        stop = _STOP.search(re.sub(r"<[^>]+>", " ", tail))
-        text = re.sub(r"<(br|/div|/p|/li)[^>]*>", "\n", tail, flags=re.I)
+        # <p> yo'q bo'lsa: div/br bo'yicha qatorlar
+        text = re.sub(r"<(br|/div|/p|/li|/h\d)[^>]*>", "\n", tail, flags=re.I)
         text = html.unescape(re.sub(r"<[^>]+>", "", text))
-        if stop:
-            cut = text.find(stop.group(0))
-            text = text[:cut] if cut > 0 else text
         lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.split("\n")]
-        body = "\n\n".join(ln for ln in lines if len(ln) >= 40)[:6000]
+        body = "\n\n".join(ln for ln in lines if len(ln) >= 40 and _ok_para(ln))[:6000]
     return body or _meta(page, "og:description")
 
 
