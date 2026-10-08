@@ -43,6 +43,13 @@ Keyin token kerak bo'lganda: Graph API Explorer → **Generate Access Token** (N
 Extend qilish ham, Railway'ni o'zgartirish ham shart emas. `/meta` token muddatini ko'rsatadi («♾ muddatsiz»).
 Token ishlamay qolsa (parol o'zgarsa, ilova ruxsati olib tashlansa) — bot adminlarga o'zi xabar beradi.
 
+## 🎬 Video: Telegram → Facebook va Instagram
+Botga kanal postining havolasini (`https://t.me/Namanganliklar_uz/1234`) yuboring yoki videoni forward qiling.
+- Tik (9:16) video → Facebook **Reels**, yotiq (16:9) → Facebook **oddiy video**; Instagram'ga har doim **Reels**
+- Izoh — videoning o'z izohi, o'zgarishsiz (qo'shimcha matnsiz)
+- Chegara: 3 daqiqagacha va 20 MB gacha. Havola bilan ishlashi uchun bot kanalda admin bo'lishi kerak
+- Joylangan joylar ✅ bilan belgilanadi, qayta bosilsa «avval joylangan» deydi
+
 ## 🌐 Saytdagi yangi maqolalar (avtomatik)
 Bot namanganliklar.uz ni har 90 soniyada tekshiradi. Yangi maqola chiqsa — sarlavha va rasmdan tayyor yangilik
 rasmini yasab **adminlarga** yuboradi (izohida maqola havolasi bilan). Kanalga faqat «📤 Kanalga yuborish»

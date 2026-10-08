@@ -1,6 +1,7 @@
 import asyncio
 import calendar
 import html
+import json
 import os
 import logging
 import re
@@ -1053,6 +1054,135 @@ async def news_publish(c: CallbackQuery, bot: Bot):
     except Exception:
         pass
     await c.message.answer("\n".join(ok + fail) or "Hech narsa yuborilmadi", disable_web_page_preview=True)
+
+
+# ================= VIDEO: Telegram'dan Facebook va Instagram'ga =================
+VID_MAX_SEC = 180            # 3 daqiqagacha
+VID_MAX_BYTES = 20 * 1024 * 1024  # Telegram bot yuklab oladigan chegara
+_TME = re.compile(r"t\.me/(?:c/(\d+)|([A-Za-z0-9_]{4,}))/(\d+)")
+
+
+def _vid_key(chat_id, msg_id) -> str:
+    return f"vid:{chat_id}:{msg_id}"
+
+
+def _vid_get(c: CallbackQuery) -> dict | None:
+    v = db.kv_get(_vid_key(c.message.chat.id, c.message.message_id))
+    return json.loads(v) if v else None
+
+
+def _vid_targets(vertical: bool) -> list[tuple[str, str]]:
+    return [("fb", "📘 Facebook (Reels)" if vertical else "📘 Facebook (video)"),
+            ("ig", "📸 Instagram (Reels)")]
+
+
+def _vid_kb(vertical: bool, posted: set[str]):
+    kb = InlineKeyboardBuilder()
+    targets = _vid_targets(vertical)
+    for key, title in targets:
+        kb.button(text=f"✅ {title}" if key in posted else title, callback_data=f"vd:{key}")
+    left = [t for t in targets if t[0] not in posted]
+    if len(left) > 1:
+        kb.button(text="🌐 Hammasiga", callback_data="vd:all")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+async def _video_card(m: Message, src: Message):
+    """src — video bor xabar. Tekshiradi va yuborish tugmalari bilan karta chiqaradi."""
+    if not meta.fb_enabled():
+        return await m.answer("❌ Facebook/Instagram ulanmagan (/meta)")
+    v = src.video
+    if v.duration and v.duration > VID_MAX_SEC:
+        return await m.answer(f"❌ Video {v.duration // 60}:{v.duration % 60:02d} — 3 daqiqadan uzun. "
+                              "3 daqiqagacha bo'lgan video yuboring.")
+    if v.file_size and v.file_size > VID_MAX_BYTES:
+        return await m.answer(f"❌ Video {v.file_size / 1048576:.0f} MB — 20 MB dan katta, bot yuklab ololmaydi.")
+    vertical = bool(v.width and v.height and v.height > v.width)
+    caption = src.caption or ""
+    kind = "tik (9:16) → Facebook: Reels" if vertical else "yotiq (16:9) → Facebook: oddiy video"
+    dur = f"{(v.duration or 0) // 60}:{(v.duration or 0) % 60:02d}"
+    card = await src.reply(f"🎬 <b>Video</b> · {dur} · {kind}, Instagram: Reels\n"
+                           f"Izoh: {'bor' if caption else 'yoʻq'} — o'zgarishsiz joylanadi.\n\nQayerga joylaymiz?",
+                           reply_markup=_vid_kb(vertical, set()))
+    db.kv_set(_vid_key(card.chat.id, card.message_id),
+              json.dumps({"file_id": v.file_id, "caption": caption, "vertical": vertical}, ensure_ascii=False))
+
+
+@admin.message(F.video)
+async def vid_in(m: Message):
+    await _video_card(m, m)
+
+
+@admin.message(F.text.regexp(_TME.pattern))
+async def vid_link(m: Message, bot: Bot):
+    mm = _TME.search(m.text)
+    src_chat = int(f"-100{mm.group(1)}") if mm.group(1) else f"@{mm.group(2)}"
+    try:
+        fm = await bot.forward_message(m.chat.id, src_chat, int(mm.group(3)))
+    except Exception as e:
+        return await m.answer("❌ Postni ololmadim. Bot o'sha kanalda admin bo'lishi kerak.\n"
+                              f"<i>{html.escape(str(e))[:150]}</i>")
+    if not fm.video:
+        return await fm.reply("❌ Bu postda video yo'q (yoki video fayl sifatida yuborilgan).")
+    await _video_card(m, fm)
+
+
+@router.callback_query(F.data.startswith("vd:") | F.data.startswith("vdy:") | (F.data == "vdk"))
+async def vid_cb(c: CallbackQuery, bot: Bot):
+    if c.from_user.id not in ADMIN_IDS:
+        return await c.answer("Ruxsat yo'q", show_alert=True)
+    st = _vid_get(c)
+    if not st:
+        return await c.answer("Bu video eskirgan — qaytadan yuboring", show_alert=True)
+    posted = _posted(c)
+    vertical = st["vertical"]
+    if c.data == "vdk":
+        await c.message.edit_reply_markup(reply_markup=_vid_kb(vertical, posted))
+        return await c.answer()
+    key = c.data.split(":", 1)[1]
+    targets = dict(_vid_targets(vertical))
+    chosen = [k for k in targets if k not in posted] if key == "all" else [key]
+    if not chosen:
+        return await c.answer("✅ Bu video hamma joyga avval joylangan", show_alert=True)
+    if key != "all" and key in posted:
+        return await c.answer(f"✅ Bu video {targets[key]} ga avval joylangan", show_alert=True)
+    if c.data.startswith("vd:"):
+        kb = InlineKeyboardBuilder()
+        kb.button(text="✅ Ha, joylash", callback_data=f"vdy:{key}")
+        kb.button(text="◀️ Bekor qilish", callback_data="vdk")
+        kb.adjust(2)
+        await c.message.edit_reply_markup(reply_markup=kb.as_markup())
+        return await c.answer(f"{', '.join(targets[k] for k in chosen)} — joylansinmi?")
+    await c.answer("Yuklanmoqda…")
+    await c.message.edit_reply_markup(reply_markup=None)
+    wait = await c.message.answer("⏳ Video yuklanmoqda… Meta uni qayta ishlashi 1–3 daqiqa oladi.")
+    ok, fail, done = [], [], []
+    try:
+        data = (await bot.download(st["file_id"])).read()
+    except Exception as e:
+        data = None
+        fail.append(f"❌ Videoni Telegram'dan yuklab bo'lmadi — {html.escape(str(e))[:100]}")
+    if data:
+        for k in chosen:
+            try:
+                url = await (meta.post_facebook_video(data, st["caption"], vertical) if k == "fb"
+                             else meta.post_instagram_reel(data, st["caption"]))
+                ok.append(f"✅ <a href=\"{html.escape(url, quote=True)}\">{html.escape(targets[k])}</a>")
+                done.append(k)
+            except Exception as e:
+                fail.append(f"❌ {html.escape(targets[k])} — {html.escape(str(e))[:150]}")
+    if done:
+        _mark_posted(c, done)
+    try:
+        await c.message.edit_reply_markup(reply_markup=_vid_kb(vertical, _posted(c)))
+    except Exception:
+        pass
+    try:
+        await wait.delete()
+    except Exception:
+        pass
+    await c.message.answer("\n".join(ok + fail) or "Hech narsa joylanmadi", disable_web_page_preview=True)
 
 
 @admin.message(Command("matn"))

@@ -310,6 +310,70 @@ async def post_instagram(image: bytes, caption: str) -> str:
         return link or "https://www.instagram.com/"
 
 
+# ---------- video ----------
+_VTIMEOUT = aiohttp.ClientTimeout(total=900)
+VIDEO_BASE = f"https://graph-video.facebook.com/{VER}"
+
+
+async def _rupload(session, url: str, token: str, data: bytes):
+    """Meta'ning rupload serveriga faylni bir martada yuklash."""
+    headers = {"Authorization": f"OAuth {token}", "offset": "0", "file_size": str(len(data)),
+               "Content-Type": "application/octet-stream"}
+    async with session.post(url, data=data, headers=headers) as r:
+        res = await r.json(content_type=None)
+    if isinstance(res, dict) and (res.get("error") or res.get("debug_info")) and not res.get("success"):
+        err = res.get("error") or res.get("debug_info") or {}
+        raise MetaError(f"Video yuklanmadi: {err.get('message') if isinstance(err, dict) else err}")
+    return res
+
+
+async def post_facebook_video(video: bytes, caption: str, vertical: bool) -> str:
+    """Facebook sahifaga video: tik (9:16) — Reels, yotiq (16:9) — oddiy video. Havolani qaytaradi."""
+    tok = _page_token()
+    async with aiohttp.ClientSession(timeout=_VTIMEOUT) as s:
+        if not vertical:
+            form = aiohttp.FormData()
+            form.add_field("source", video, filename="video.mp4", content_type="video/mp4")
+            form.add_field("description", caption or "")
+            res = await _call(s, "POST", f"{PAGE_ID}/videos", base=VIDEO_BASE, data=form)
+            return f"https://www.facebook.com/{PAGE_ID}/videos/{res.get('id')}"
+        start = await _call(s, "POST", f"{PAGE_ID}/video_reels", data={"upload_phase": "start"})
+        vid = start["video_id"]
+        url = start.get("upload_url") or f"https://rupload.facebook.com/video-upload/{VER}/{vid}"
+        await _rupload(s, url, tok, video)
+        await _call(s, "POST", f"{PAGE_ID}/video_reels", data={
+            "upload_phase": "finish", "video_id": vid, "video_state": "PUBLISHED",
+            "description": caption or ""})
+        return f"https://www.facebook.com/reel/{vid}"
+
+
+async def post_instagram_reel(video: bytes, caption: str) -> str:
+    """Instagram'ga video (Reels). Post havolasini qaytaradi."""
+    async with aiohttp.ClientSession(timeout=_VTIMEOUT) as s:
+        ig, base, tok = await _ig_user(s)
+        cont = await _call(s, "POST", f"{ig}/media", base=base, token=tok, data={
+            "media_type": "REELS", "upload_type": "resumable",
+            "caption": (caption or "")[:IG_CAPTION_LIMIT], "share_to_feed": "true"})
+        cid = cont["id"]
+        host = "rupload.facebook.com" if base == BASE else "rupload.instagram.com"
+        await _rupload(s, cont.get("uri") or f"https://{host}/ig-api-upload/{VER}/{cid}", tok, video)
+        for _ in range(100):  # video qayta ishlanguncha (5 daqiqagacha) kutamiz
+            st = await _call(s, "GET", cid, base=base, token=tok, params={"fields": "status_code,status"})
+            if st.get("status_code") == "FINISHED":
+                break
+            if st.get("status_code") in ("ERROR", "EXPIRED"):
+                raise MetaError(f"Instagram videoni qabul qilmadi: {st.get('status') or st.get('status_code')}")
+            await asyncio.sleep(3)
+        else:
+            raise MetaError("Instagram videoni juda uzoq qayta ishlamoqda — birozdan keyin Instagram'ni tekshiring")
+        pub = await _call(s, "POST", f"{ig}/media_publish", base=base, token=tok, data={"creation_id": cid})
+        try:
+            info = await _call(s, "GET", pub["id"], base=base, token=tok, params={"fields": "permalink"})
+            return info.get("permalink") or "https://www.instagram.com/"
+        except Exception:
+            return "https://www.instagram.com/"
+
+
 async def check() -> str:
     """Sozlamalarni tekshiradi: sahifa nomi va Instagram username."""
     if not fb_enabled():
