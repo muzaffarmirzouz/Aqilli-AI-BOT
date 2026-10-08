@@ -9,9 +9,13 @@ Sozlash (Railway o'zgaruvchilari):
   META_IG_PAGE_ID, META_IG_PAGE_TOKEN — (ixtiyoriy) Instagram ulangan BOSHQA sahifa (asosiy sahifaga ulab bo'lmasa)
   META_IG_USER_ID  — (ixtiyoriy) Instagram akkaunt ID; bo'sh bo'lsa avtomatik topiladi
   META_API_VERSION — (ixtiyoriy) standart v21.0
+  META_APP_ID, META_APP_SECRET — ilova ID va maxfiy kaliti. Bular bo'lsa botga /token buyrug'i bilan
+                     oddiy (qisqa) token yuborish kifoya: bot uni o'zi muddatsiz sahifa tokeniga aylantiradi
+                     va bazada saqlaydi (Railway'ni o'zgartirish shart emas).
 """
 import asyncio
 import hashlib
+import html
 import logging
 import os
 import time
@@ -29,6 +33,8 @@ IG_ENV_TOKEN = os.getenv("META_IG_TOKEN", "").strip()
 IG_PAGE_ID = os.getenv("META_IG_PAGE_ID", "").strip()
 IG_PAGE_TOKEN = os.getenv("META_IG_PAGE_TOKEN", "").strip()
 IG_ID = os.getenv("META_IG_USER_ID", "").strip()
+APP_ID = os.getenv("META_APP_ID", "").strip()
+APP_SECRET = os.getenv("META_APP_SECRET", "").strip()
 VER = os.getenv("META_API_VERSION", "v21.0").strip()
 BASE = f"https://graph.facebook.com/{VER}"
 IG_BASE = f"https://graph.instagram.com/{VER}"
@@ -41,8 +47,30 @@ class MetaError(Exception):
     pass
 
 
+def _sync_env():
+    """Railway'ga yangi token qo'yilsa — bazadagi eskisini unutamiz (Railway ustun bo'ladi)."""
+    sig = hashlib.sha256(f"{TOKEN}|{IG_PAGE_ID}|{IG_PAGE_TOKEN}".encode()).hexdigest()[:16]
+    if db.kv_get("meta_env_sig") != sig:
+        db.kv_set("meta_env_sig", sig)
+        for k in ("meta_page_token", "meta_ig_page_id", "meta_ig_page_token"):
+            db.kv_set(k, "")
+
+
+def _page_token() -> str:
+    """Amaldagi sahifa tokeni: /token bilan yangilangani (bazada) Railway'dagidan ustun."""
+    _sync_env()
+    return db.kv_get("meta_page_token") or TOKEN
+
+
+def _ig_page() -> tuple[str, str]:
+    _sync_env()
+    pid = db.kv_get("meta_ig_page_id") or IG_PAGE_ID
+    tok = db.kv_get("meta_ig_page_token") or IG_PAGE_TOKEN
+    return pid, tok
+
+
 def fb_enabled() -> bool:
-    return bool(PAGE_ID and TOKEN)
+    return bool(PAGE_ID and _page_token())
 
 
 def ig_enabled() -> bool:
@@ -94,7 +122,8 @@ async def refresh_ig_token(force: bool = False) -> bool:
 
 
 async def ig_refresher(notify=None):
-    """Fon vazifasi: tokenni muddati o'tmasdan yangilab turadi."""
+    """Fon vazifasi: Instagram login tokenini yangilaydi va sahifa tokeni ishlayotganini tekshiradi.
+    Token yaroqsiz bo'lsa — adminlarga kuniga bir marta ogohlantirish."""
     fails = 0
     while True:
         try:
@@ -107,13 +136,93 @@ async def ig_refresher(notify=None):
             if notify and fails == 3:
                 await notify(f"⚠️ Instagram tokenini yangilab bo'lmadi: {e}\n"
                              f"Yangi token olib, Railway'dagi META_IG_TOKEN ni almashtiring.")
-        await asyncio.sleep(12 * 3600)
+        try:
+            if fb_enabled():
+                async with aiohttp.ClientSession(timeout=_TIMEOUT) as s:
+                    await _call(s, "GET", PAGE_ID, params={"fields": "name"})
+        except MetaError as e:
+            last = int(db.kv_get("meta_warn_at") or 0)
+            if notify and time.time() - last > 20 * 3600:
+                db.kv_set("meta_warn_at", str(int(time.time())))
+                await notify("⚠️ <b>Facebook/Instagram tokeni ishlamayapti</b>\n"
+                             f"{html.escape(str(e))}\n\nYangilash: Graph API Explorer → Generate Access Token → "
+                             "tokenni nusxalab botga <code>/token TOKEN</code> deb yuboring.")
+        except Exception as e:
+            log.warning("meta tekshiruv: %s", e)
+        await asyncio.sleep(6 * 3600)
+
+
+# ---------- /token: oddiy tokenni muddatsiz sahifa tokeniga aylantirish ----------
+
+def app_ready() -> bool:
+    return bool(APP_ID and APP_SECRET)
+
+
+async def _expiry(session, token: str) -> str:
+    """Token qachon tugashini matn ko'rinishida qaytaradi."""
+    if not app_ready():
+        return ""
+    data = await _call(session, "GET", "debug_token", token=f"{APP_ID}|{APP_SECRET}",
+                       params={"input_token": token})
+    d = data.get("data") or {}
+    if not d.get("is_valid"):
+        return "❌ yaroqsiz"
+    exp = int(d.get("expires_at") or 0)
+    if exp == 0:
+        return "♾ muddatsiz"
+    days = (exp - time.time()) / 86400
+    return f"⏳ {days:.0f} kundan keyin tugaydi" if days >= 1 else f"⏳ {days * 24:.0f} soatdan keyin tugaydi"
+
+
+async def set_from_user_token(user_token: str) -> str:
+    """Graph API Explorer'dagi oddiy foydalanuvchi tokenidan muddatsiz sahifa tokenlarini olib, bazaga yozadi."""
+    global IG_ID
+    if not app_ready():
+        raise MetaError("Railway'ga META_APP_ID va META_APP_SECRET qo'shilmagan")
+    if not PAGE_ID:
+        raise MetaError("META_PAGE_ID o'rnatilmagan")
+    async with aiohttp.ClientSession(timeout=_TIMEOUT) as s:
+        # 1) qisqa token → uzoq muddatli (60 kun) foydalanuvchi tokeni
+        ex = await _call(s, "GET", "oauth/access_token", token=user_token, params={
+            "grant_type": "fb_exchange_token", "client_id": APP_ID,
+            "client_secret": APP_SECRET, "fb_exchange_token": user_token})
+        long_user = ex.get("access_token")
+        if not long_user:
+            raise MetaError("Tokenni uzaytirib bo'lmadi")
+        # 2) uzoq muddatli foydalanuvchi tokenidan olingan sahifa tokenlari — muddatsiz
+        acc = await _call(s, "GET", "me/accounts", token=long_user, params={
+            "fields": "id,name,access_token,instagram_business_account", "limit": "100"})
+        pages = acc.get("data") or []
+        main = next((p for p in pages if p.get("id") == PAGE_ID), None)
+        if not main:
+            names = ", ".join(p.get("name", "?") for p in pages) or "hech qaysi"
+            raise MetaError(f"Tokenda asosiy sahifa (ID {PAGE_ID}) yo'q. Tokendagi sahifalar: {names}. "
+                            "Generate Access Token oynasida sahifani belgilang")
+        db.kv_set("meta_page_token", main["access_token"])
+        lines = [f"✅ Facebook: {main.get('name')} — {await _expiry(s, main['access_token'])}"]
+        # Instagram ulangan sahifa: avval asosiy sahifa, keyin oldin tanlangani, keyin istalgani
+        with_ig = [p for p in pages if p.get("instagram_business_account")]
+        old_pid = _ig_page()[0]
+        ig_page = (next((p for p in with_ig if p["id"] == PAGE_ID), None)
+                   or next((p for p in with_ig if p["id"] == old_pid), None)
+                   or (with_ig[0] if with_ig else None))
+        if ig_page:
+            db.kv_set("meta_ig_page_id", ig_page["id"])
+            db.kv_set("meta_ig_page_token", ig_page["access_token"])
+            IG_ID = ig_page["instagram_business_account"]["id"]
+            lines.append(f"✅ Instagram: {ig_page.get('name')} sahifasi orqali — "
+                         f"{await _expiry(s, ig_page['access_token'])}")
+        else:
+            lines.append("⚠️ Instagram ulangan sahifa tokenda topilmadi (Generate oynasida Namangam va "
+                         "Instagram'ni belgilang)")
+        db.kv_set("meta_warn_at", "0")
+        return "\n".join(lines)
 
 
 # ---------- umumiy chaqiruvlar ----------
 
 async def _call(session, method: str, path: str, base: str = BASE, token: str = "", **kw):
-    kw.setdefault("params", {})["access_token"] = token or TOKEN
+    kw.setdefault("params", {})["access_token"] = token or _page_token()
     async with session.request(method, f"{base}/{path}", **kw) as r:
         data = await r.json(content_type=None)
     if isinstance(data, dict) and data.get("error"):
@@ -132,7 +241,8 @@ async def _ig_user(session) -> tuple[str, str, str]:
                              params={"fields": "user_id,username"})
             IG_ID = str(me.get("user_id") or me.get("id"))
         return IG_ID, IG_BASE, tok
-    pid, ptok = (IG_PAGE_ID, IG_PAGE_TOKEN or TOKEN) if IG_PAGE_ID else (PAGE_ID, TOKEN)
+    ig_pid, ig_ptok = _ig_page()
+    pid, ptok = (ig_pid, ig_ptok or _page_token()) if ig_pid else (PAGE_ID, _page_token())
     if not IG_ID:
         data = await _call(session, "GET", pid, token=ptok, params={"fields": "instagram_business_account"})
         iba = (data.get("instagram_business_account") or {}).get("id")
@@ -207,6 +317,12 @@ async def check() -> str:
     async with aiohttp.ClientSession(timeout=_TIMEOUT) as s:
         page = await _call(s, "GET", PAGE_ID, params={"fields": "name"})
         out = f"✅ Facebook sahifa: {page.get('name')}"
+        try:
+            exp = await _expiry(s, _page_token())
+            if exp:
+                out += f" ({exp})"
+        except Exception:
+            pass
         try:
             ig, base, tok = await _ig_user(s)
             info = await _call(s, "GET", ig if base == BASE else "me", base=base, token=tok,

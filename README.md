@@ -35,6 +35,14 @@ Botga rasm yuboring, izohiga sarlavha yozing — Namanganliklar.uz shablonidagi 
   (token: Graph API Explorer → `me/accounts` → o'sha sahifaning access_token).
 - Tekshirish: `/meta`; maqoladan qanday matn olinishini ko'rish: `/matn https://namanganliklar.uz/news/123`
 
+### 🔑 Token muddatsiz bo'lishi uchun (tavsiya)
+Railway'ga bir marta qo'shing: `META_APP_ID` va `META_APP_SECRET`
+(developers.facebook.com → ilova → **Настройки приложения → Основное**: «ID приложения» va «Секрет приложения» → «Показать»).
+Keyin token kerak bo'lganda: Graph API Explorer → **Generate Access Token** (Namanganliklar.Uz, Namangam, Instagram belgilangan)
+→ tokenni nusxalab botga `/token EAAB...` yuboring. Bot uni o'zi uzaytiradi, muddatsiz sahifa tokenlarini oladi va saqlaydi —
+Extend qilish ham, Railway'ni o'zgartirish ham shart emas. `/meta` token muddatini ko'rsatadi («♾ muddatsiz»).
+Token ishlamay qolsa (parol o'zgarsa, ilova ruxsati olib tashlansa) — bot adminlarga o'zi xabar beradi.
+
 ## 🌐 Saytdagi yangi maqolalar (avtomatik)
 Bot namanganliklar.uz ni har 90 soniyada tekshiradi. Yangi maqola chiqsa — sarlavha va rasmdan tayyor yangilik
 rasmini yasab **adminlarga** yuboradi (izohida maqola havolasi bilan). Kanalga faqat «📤 Kanalga yuborish»

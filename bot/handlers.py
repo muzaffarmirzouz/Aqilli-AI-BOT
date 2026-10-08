@@ -1076,6 +1076,27 @@ async def a_matn(m: Message, command: CommandObject):
                    f"<i>{len(body)} belgi</i>")
 
 
+@admin.message(Command("token"))
+async def a_token(m: Message, command: CommandObject):
+    """Graph API Explorer'dagi tokenni muddatsiz sahifa tokeniga aylantirish: /token EAAB..."""
+    tok = (command.args or "").strip()
+    try:
+        await m.delete()  # token chatda ochiq qolmasin
+    except Exception:
+        pass
+    if not tok:
+        return await m.answer(
+            "Graph API Explorer → <b>Generate Access Token</b> (Namanganliklar.Uz, Namangam va Instagram'ni "
+            "belgilang) → tokenni nusxalab shunday yuboring:\n<code>/token EAAB...</code>\n\n"
+            "Extend qilish shart emas — bot o'zi muddatsiz qiladi.")
+    msg = await m.answer("⏳ Token tekshirilmoqda…")
+    try:
+        res = await meta.set_from_user_token(tok)
+        await msg.edit_text(res + "\n\nRailway'ni o'zgartirish shart emas — bot yangi tokenni saqlab oldi.")
+    except Exception as e:
+        await msg.edit_text(f"❌ {html.escape(str(e))}")
+
+
 @admin.message(Command("meta"))
 async def a_meta(m: Message):
     """Facebook/Instagram ulanishini tekshirish."""
