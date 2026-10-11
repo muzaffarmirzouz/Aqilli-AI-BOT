@@ -13,12 +13,17 @@ _con.execute(
         device_id TEXT, device_name TEXT,
         active INTEGER DEFAULT 0,
         cyr INTEGER DEFAULT 0,
-        mode TEXT, scenario TEXT, csrf_url TEXT,
+        mode TEXT, scenario TEXT, scenario_name TEXT, csrf_url TEXT,
         texts TEXT, enabled TEXT,
         last_err TEXT, last_err_day TEXT,
         created INTEGER, updated INTEGER)"""
 )
 _con.commit()
+try:  # eski jadvalga yangi ustun
+    _con.execute("ALTER TABLE ys_users ADD COLUMN scenario_name TEXT")
+    _con.commit()
+except Exception:
+    pass
 
 
 @dataclass
@@ -32,6 +37,7 @@ class Profile:
     cyr: int = 0
     mode: str = ""
     scenario: str = ""
+    scenario_name: str = ""
     csrf_url: str = ""
     texts: dict = field(default_factory=dict)
     enabled: dict = field(default_factory=dict)
@@ -116,7 +122,7 @@ def migrate_legacy(uid: int):
         device_id=db.kv_get("ys_device") or "", device_name=db.kv_get("ys_device_name") or "",
         active=1 if db.kv_get("ys_on") == "1" else 0,
         cyr=0 if db.kv_get("ys_cyr") == "0" else 1,
-        mode=db.kv_get("ys_mode") or "", scenario=db.kv_get("ys_scenario") or "",
+        mode=(db.kv_get("ys_mode") or "").replace("scenario", ""), scenario=db.kv_get("ys_scenario") or "",
         csrf_url=db.kv_get("ys_csrf_url") or "",
         texts={k: v for k in keys if (v := db.kv_get(f"ys_text_{k}"))},
         enabled={k: db.kv_get(f"ys_en_{k}") == "1" for k in keys if db.kv_get(f"ys_en_{k}") is not None},

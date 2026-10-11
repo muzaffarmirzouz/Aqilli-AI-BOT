@@ -11,6 +11,7 @@ Bazada faqat token saqlanadi (yandex/store.py, har foydalanuvchi alohida).
 """
 import asyncio
 import json
+import random
 import logging
 import re
 
@@ -339,10 +340,10 @@ class Client:
 
     # ---------- stsenariy ----------
     @staticmethod
-    def _payload(dev: str, text: str) -> dict:
+    def _payload(dev: str, text: str, name: str = SCENARIO_NAME) -> dict:
         """Ovozli trigger + kolonkada TTS (Yandex'ning hozirgi "actions.v2" formati)."""
         return {
-            "name": SCENARIO_NAME,
+            "name": name,
             "icon": "home",
             "triggers": [{"trigger": {"type": "scenario.trigger.voice", "value": SCENARIO_TRIGGER}}],
             "steps": [{
@@ -374,63 +375,80 @@ class Client:
                 log.warning("stsenariylar ro'yxati %s: %s", url, e)
                 continue
             for sc in data.get("scenarios", []) or []:
-                if sc.get("name") in (SCENARIO_NAME, OLD_SCENARIO_NAME):
+                if str(sc.get("name", "")).startswith(SCENARIO_NAME) or sc.get("name") == OLD_SCENARIO_NAME:
                     return sc["id"]
             return ""
         return ""
 
     async def _create(self, dev: str, text: str) -> str:
-        try:
-            data = await self.req("POST", f"{IOT_V4}/scenarios", self._payload(dev, text))
-        except YandexError as e:
-            if "ALREADY_EXISTS" in str(e).upper() or "NAME" in str(e).upper():
-                sid = await self._find_scenario()
-                if sid:
-                    return sid
-            raise YandexError(f"Stsenariy yaratishda xato: {e}")
-        sid = data.get("scenario_id") or data.get("id") or ""
-        if not sid:
-            raise YandexError(f"Stsenariy yaratildi, lekin Yandex uning raqamini qaytarmadi: {str(data)[:150]}")
-        return sid
+        """Yangi stsenariy. Nom band bo'lsa (ro'yxat olinmaydigan akkauntlarda eski stsenariy qolgan) —
+        boshqa nom bilan yaratadi."""
+        name, last = SCENARIO_NAME, ""
+        for _ in range(3):
+            try:
+                data = await self.req("POST", f"{IOT_V4}/scenarios", self._payload(dev, text, name))
+            except YandexError as e:
+                last = str(e)
+                if "NAME_IS_ALREADY_TAKEN" in last or "ALREADY" in last.upper():
+                    name = f"{SCENARIO_NAME} {random.randint(100, 999)}"
+                    continue
+                raise YandexError(f"Stsenariy yaratishda xato: {e}")
+            sid = data.get("scenario_id") or data.get("id") or ""
+            if not sid:
+                raise YandexError(f"Stsenariy yaratildi, lekin Yandex uning raqamini qaytarmadi: {str(data)[:150]}")
+            self.p.scenario_name = name
+            return sid
+        raise YandexError(f"Stsenariy yaratishda xato: {last}")
 
-    async def _direct(self, dev: str, text: str) -> bool:
-        """Stsenariysiz: kolonkaga to'g'ridan-to'g'ri buyruq. Ishlagan usul eslab qolinadi."""
+    async def _direct(self, dev: str, text: str) -> str:
+        """Stsenariysiz: kolonkaga to'g'ridan-to'g'ri buyruq. Har safar sinaladi (ishlagan usul birinchi).
+        Natija: "" — ishladi, aks holda xato matni."""
         variants = {
             "phrase": {"type": "devices.capabilities.quasar.server_action",
                        "state": {"instance": "phrase_action", "value": text}},
             "tts": {"type": "devices.capabilities.quasar",
                     "state": {"instance": "tts", "value": {"text": text}}},
         }
-        mode = self.p.mode or ""
-        if mode == "scenario":
-            return False
-        order = [mode] if mode in variants else list(variants)
+        order = list(variants)
+        if self.p.mode in variants:
+            order.remove(self.p.mode)
+            order.insert(0, self.p.mode)
+        errors = []
         for name in order:
             try:
                 await self.req("POST", f"{IOT}/devices/{dev}/actions", {"actions": [variants[name]]},
-                               tries=2, timeout=10)
+                               tries=3, timeout=10)
                 self.p.mode = name
-                log.info("kolonka: to'g'ridan-to'g'ri (%s) ishladi", name)
-                return True
+                return ""
+            except YandexAuthError:
+                raise
             except YandexError as e:
                 log.warning("to'g'ridan-to'g'ri %s: %s", name, e)
-        if not mode:
-            self.p.mode = "scenario"  # bu akkauntda faqat stsenariy orqali
-        elif mode in variants:
-            self.p.mode = ""  # ilgari ishlagan usul buzildi — keyingi safar hammasini sinaymiz
-        return False
+                errors.append(f"{name}: {e}")
+        return "; ".join(errors)
 
     async def say(self, text: str, dev: str | None = None):
         dev = dev or self.p.device_id
         if not dev:
             raise YandexError("Kolonka tanlanmagan")
         text = text.strip()[:MAX_PHRASE]
-        if await self._direct(dev, text):
+        direct_err = await self._direct(dev, text)
+        if not direct_err:
             return
+        try:
+            await self._via_scenario(dev, text)
+        except YandexAuthError:
+            raise
+        except YandexError as e:
+            raise YandexError(f"Kolonkaga yuborib bo'lmadi. To'g'ridan-to'g'ri: {direct_err[:200]} | "
+                              f"Stsenariy: {str(e)[:200]}")
+
+    async def _via_scenario(self, dev: str, text: str):
+        name = self.p.scenario_name or SCENARIO_NAME
         sid = self.p.scenario or ""
         if sid:
             try:
-                await self.req("PUT", f"{IOT_V4}/scenarios/{sid}", self._payload(dev, text))
+                await self.req("PUT", f"{IOT_V4}/scenarios/{sid}", self._payload(dev, text, name))
             except YandexError as e:
                 log.warning("stsenariy %s yangilanmadi (%s) — yangisi yaratiladi", sid, e)
                 sid = ""
@@ -438,7 +456,7 @@ class Client:
             sid = await self._find_scenario()
             if sid:
                 try:
-                    await self.req("PUT", f"{IOT_V4}/scenarios/{sid}", self._payload(dev, text))
+                    await self.req("PUT", f"{IOT_V4}/scenarios/{sid}", self._payload(dev, text, name))
                 except YandexError as e:
                     raise YandexError(f"Matnni yangilashda xato: {e}")
             else:
