@@ -133,6 +133,17 @@ async def cmd(m: Message, bot: Bot):
     await show_panel(bot, m.from_user.id)
 
 
+@router.message(Command("kolonka_tekshir"))
+async def cmd_diag(m: Message):
+    await m.answer("⏳ Yandex tekshirilmoqda…")
+    try:
+        async with ys.Client() as cl:
+            lines = await cl.diagnose()
+    except Exception as e:
+        lines = [f"❌ {type(e).__name__}: {e}"]
+    await m.answer("🔍 <b>Kolonka tekshiruvi</b>\n" + html.escape("\n".join(lines))[:3900])
+
+
 COOKIE_HELP = (
     "🔑 <b>Yandex akkauntini ulash</b>\n\n"
     "Kompyuterda (Chrome):\n"
@@ -244,7 +255,7 @@ async def speak(bot: Bot, uid: int, text: str):
         await bot.send_message(uid, f"❌ {html.escape(str(e))}")
     except Exception as e:
         log.exception("kolonka")
-        await bot.send_message(uid, f"❌ Xato: {html.escape(str(e))[:300]}")
+        await bot.send_message(uid, f"❌ Xato: {html.escape(str(e) or type(e).__name__)[:300]}")
 
 
 async def choose_device(bot: Bot, uid: int) -> bool:
@@ -256,7 +267,7 @@ async def choose_device(bot: Bot, uid: int) -> bool:
         return False
     except Exception as e:
         log.exception("kolonkalar")
-        await bot.send_message(uid, f"❌ Yandex bilan bog'lanib bo'lmadi: {html.escape(str(e))[:300]}")
+        await bot.send_message(uid, f"❌ Yandex bilan bog'lanib bo'lmadi: {html.escape(str(e) or type(e).__name__)[:300]}")
         return False
     if not devs:
         await bot.send_message(uid, "⚠️ Akkauntda birorta ham Yandex kolonka topilmadi. "

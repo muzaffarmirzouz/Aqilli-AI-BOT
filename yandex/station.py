@@ -9,6 +9,7 @@ ham shu usulda ishlaydi):
 Kirish: brauzer cookie'lari bir marta Yandex x-token'iga almashtiriladi (bazada faqat token saqlanadi),
 har ulanishda token bilan yangi sessiya ochiladi.
 """
+import asyncio
 import json
 import logging
 import re
@@ -245,25 +246,72 @@ class Client:
         raise YandexError("Yandex CSRF tokenini olib bo'lmadi. Tekshirilgan manzillar: " + "; ".join(tried))
 
     async def req(self, method: str, url: str, payload: dict | None = None) -> dict:
-        for attempt in range(2):
+        """JSON so'rov. 401/403 da CSRF yangilanadi, 5xx da 3 martagacha qayta urinadi."""
+        last = ""
+        for attempt in range(4):
             headers = {}
             if method != "GET":
                 headers["x-csrf-token"] = self.csrf or await self._csrf()
-            async with self.s.request(method, url, json=payload, headers=headers) as r:
-                text = await r.text()
-                if r.status in (401, 403) and attempt == 0:
-                    await self._csrf()  # token eskirgan bo'lishi mumkin
-                    continue
-                try:
-                    data = json.loads(text) if text else {}
-                except ValueError:
-                    data = {}
-                if r.status >= 400 or (data and data.get("status") not in (None, "ok")):
-                    if r.status == 401:
-                        raise YandexError("Yandex akkauntiga kirish rad etildi — akkauntni qaytadan ulang.")
-                    raise YandexError(f"Yandex javobi {r.status}: {text[:200]}")
-                return data
-        raise YandexError("Yandex ruxsat bermadi (403). Akkauntni qaytadan ulang.")
+            try:
+                async with self.s.request(method, url, json=payload, headers=headers) as r:
+                    status, text = r.status, await r.text()
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                status, text = 0, f"{type(e).__name__}: {e}"
+            if status in (401, 403) and attempt == 0:
+                if status == 401:
+                    await self._login()
+                await self._csrf()
+                continue
+            try:
+                data = json.loads(text) if text and status else {}
+            except ValueError:
+                data = {}
+            if status == 0 or status >= 500:
+                last = f"{status or 'tarmoq'}: {text[:200]}"
+                await asyncio.sleep(1.5 * (attempt + 1))
+                continue
+            if status >= 400 or (data and data.get("status") not in (None, "ok")):
+                if status == 401:
+                    raise YandexError("Yandex akkauntiga kirish rad etildi — akkauntni qaytadan ulang.")
+                raise YandexError(f"Yandex javobi {status}: {text[:200]}")
+            return data
+        raise YandexError(f"Yandex javobi {last}" if last else "Yandex ruxsat bermadi (403). Akkauntni qaytadan ulang.")
+
+    async def diagnose(self) -> list[str]:
+        """Batafsil tekshiruv (adminga ko'rsatish uchun)."""
+        out = ["✅ Token bilan Yandex'ga kirildi"]
+        try:
+            async with self.s.get(f"{IOT_V3}/devices") as r:
+                st, body = r.status, await r.text()
+            out.append(f"Qurilmalar ro'yxati: HTTP {st}")
+            data = json.loads(body) if st == 200 else {}
+            for h in data.get("households", []) or []:
+                out.append(f"🏠 {h.get('name', '')}")
+                for d in h.get("all", []) or []:
+                    qi = d.get("quasar_info") or {}
+                    out.append(f"  • {d.get('name')} | {str(d.get('type', '')).replace('devices.types.', '')}"
+                               f" | platform={qi.get('platform', '—')}"
+                               f"{' | ulashilgan' if d.get('sharing_info') else ''} | id={d.get('id', '')[:8]}…")
+            if st != 200:
+                out.append(f"  javob: {body[:200]}")
+        except Exception as e:
+            out.append(f"❌ Qurilmalar: {type(e).__name__}: {e}")
+        for url in (f"{IOT}/scenarios", f"{IOT_V3}/scenarios"):
+            try:
+                async with self.s.get(url) as r:
+                    st, body = r.status, await r.text()
+                n = len(json.loads(body).get("scenarios", [])) if st == 200 else "—"
+                out.append(f"Stsenariylar {url.split('/m/')[1]}: HTTP {st}, soni {n}"
+                           + ("" if st == 200 else f" | {body[:120]}"))
+            except Exception as e:
+                out.append(f"❌ Stsenariylar: {type(e).__name__}: {e}")
+        try:
+            await self._csrf()
+            out.append("✅ CSRF token olindi")
+        except YandexError as e:
+            out.append(f"❌ {e}")
+        out.append(f"Saqlangan stsenariy: {db.kv_get('ys_scenario') or '—'} · kolonka id: {device_id()[:8] or '—'}…")
+        return out
 
     # ---------- qurilmalar ----------
     async def speakers(self) -> list[dict]:
