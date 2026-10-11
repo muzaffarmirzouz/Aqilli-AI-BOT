@@ -35,11 +35,13 @@ MULTI = len(REGIONS) > 1  # bitta hudud bo'lsa, hudud tanlash ko'rsatilmaydi
 
 B_ADMIN = "⚙️ Admin panel"
 B_YS = "🔊 Kolonka eslatma"  # yandex/kolonka.py dagi B_YS bilan bir xil
+B_PN = "🕌 Namoz vaqtida xabar"  # bot/namoz_xabar.py dagi B_PN bilan bir xil
 
 
 def menu(uid: int | None = None) -> ReplyKeyboardMarkup:
     rows = [
             [KeyboardButton(text=B_PRAYER)],
+            [KeyboardButton(text=B_PN)],
             [KeyboardButton(text=B_WEATHER), KeyboardButton(text=B_RATES)],
             [KeyboardButton(text=B_REGION), KeyboardButton(text=B_NOTIFY)] if MULTI
             else [KeyboardButton(text=B_NOTIFY)],
@@ -87,6 +89,7 @@ def welcome_text(first_name: str) -> str:
         "• 🌤 Ob-havo — hozir va keyingi kunlar\n"
         "• 💵 Valyuta kursi — Markaziy bank kursi\n"
         f"• 🔔 Har kuni soat {SEND_AT} da ertangi kun ma'lumotlarini o'zi yuboradi\n"
+        "• 🕌 Har 5 vaqt namoz kirganda xabar (xohlasangiz azon audiosi bilan) — «Namoz vaqtida xabar»\n"
         "• 📢 Kanalingizga admin qilsangiz, har kuni namoz vaqtlari rasmini o'zi joylaydi\n"
         "• 🔊 Yandex Stansiyangiz har namoz vaqtida siz yozgan gapni aytadi — «Kolonka eslatma»\n\n"
         "Kerakli bo'limni tanlang 👇"
@@ -1318,6 +1321,7 @@ async def a_help(m: Message):
         "/kolonka_tekshir — Yandex ulanishini batafsil tekshirish\n"
         "/kolonka_stat — nechta foydalanuvchi kolonka ulagan\n"
         "/kolonka_cookie — QR ishlamasa, cookie bilan ulash (zaxira)\n"
+        "/eslatma_stat — namoz vaqtida xabar oluvchilar soni\n"
         "/stat — statistika\n"
         "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
         "/meta — Facebook va Instagram ulanishini tekshirish\n"
