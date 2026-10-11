@@ -46,6 +46,7 @@ NO_AZAN = {"quyosh"}  # quyosh chiqishida azon aytilmaydi
 LATE_MIN = 5          # bot qayta ishga tushsa, vaqtdan keyin shuncha daqiqagacha baribir aytadi
 QR_WAIT_SEC = 180     # QR kod amal qilish vaqti
 TEST_COOLDOWN = 15    # «Sinov» tugmasini qayta bosish oralig'i (soniya)
+RETRY_PAUSES = [20, 40]  # yuborilmasa: 20 s va yana 40 s dan keyin qayta urinish
 PARALLEL = 15         # bir vaqtda nechta kolonkaga yuboriladi
 
 WAIT: dict[int, str] = {}            # uid -> "cookie" | "text:<namoz>"
@@ -600,9 +601,19 @@ async def _send_one(bot: Bot, p: store.Profile, k: str, sem: asyncio.Semaphore, 
             res[p.uid] = "o'tkazildi (o'chiq)"
             return False
         try:
-            await ys.say(p, text_of(p, k), azan_for(p, k))
-            res[p.uid] = "✅ yuborildi"
-            return True
+            for attempt, pause in enumerate(RETRY_PAUSES + [None]):
+                try:
+                    await ys.say(p, text_of(p, k), azan_for(p, k))
+                    res[p.uid] = "✅ yuborildi" + (f" ({attempt + 1}-urinishda)" if attempt else "")
+                    return True
+                except ys.YandexAuthError:
+                    raise
+                except Exception as e:
+                    if pause is None:
+                        raise
+                    log.warning("kolonka uid=%s %s, %d-urinish: %s", p.uid, k, attempt + 1, e)
+                    await ys.reset(p.uid)  # keyingi urinish yangi sessiya bilan
+                    await asyncio.sleep(pause)
         except ys.YandexAuthError:
             res[p.uid] = "❌ token bekor — o'chirildi"
             p.active = 0

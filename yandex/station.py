@@ -12,6 +12,7 @@ Bazada faqat token saqlanadi (yandex/store.py, har foydalanuvchi alohida).
 import asyncio
 import json
 import random
+import time
 import logging
 import re
 
@@ -417,7 +418,7 @@ class Client:
         for name in order:
             try:
                 await self.req("POST", f"{IOT}/devices/{dev}/actions", {"actions": [variants[name]]},
-                               tries=3, timeout=10)
+                               tries=2, timeout=8)
                 self.p.mode = name
                 return ""
             except YandexAuthError:
@@ -484,13 +485,14 @@ class Client:
 
 # Har foydalanuvchiga doimiy sessiya (har safar qaytadan kirmaslik uchun). Ko'pi bilan MAX_SESSIONS ta.
 MAX_SESSIONS = 300
+SESSION_MAX_AGE = 20 * 60  # shundan eski sessiya bilan yubormaymiz — Yandex eskirganiga 500 qaytaradi
 _sessions: dict[int, Client] = {}
 _locks: dict[int, asyncio.Lock] = {}
 
 
 async def _client(prof: Profile) -> Client:
     c = _sessions.get(prof.uid)
-    if c and not c.s.closed and c.x_token == prof.x_token:
+    if c and not c.s.closed and c.x_token == prof.x_token and time.time() - c.born < SESSION_MAX_AGE:
         c.p = prof  # eng yangi sozlamalar
         return c
     await reset(prof.uid)
@@ -498,6 +500,7 @@ async def _client(prof: Profile) -> Client:
         await reset(next(iter(_sessions)))
     c = Client(prof)
     await c.__aenter__()
+    c.born = time.time()
     _sessions[prof.uid] = c
     return c
 
