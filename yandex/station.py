@@ -3,9 +3,9 @@
 Rasmiy ochiq API yo'q, shuning uchun Yandex "Umnyy dom" ilovasining o'zi ishlatadigan
 iot.quasar.yandex.ru manzillari ishlatiladi (Home Assistant'dagi YandexStation integratsiyasi
 ham shu usulda ishlaydi):
-  1) akkauntda bitta yordamchi stsenariy yaratiladi ("Namoz eslatma (bot)");
+  1) akkauntda bitta yordamchi stsenariy yaratiladi ("Namoz eslatma bot");
   2) gapirish kerak bo'lganda stsenariydagi matn yangilanadi va stsenariy ishga tushiriladi —
-     kolonka matnni ovoz chiqarib aytadi (phrase_action).
+     kolonka matnni ovoz chiqarib aytadi (quasar tts).
 Kirish: brauzerdan olingan yandex.ru cookie'lari (Session_id va boshqalar).
 """
 import json
@@ -20,8 +20,10 @@ log = logging.getLogger(__name__)
 
 IOT = "https://iot.quasar.yandex.ru/m/user"
 IOT_V3 = "https://iot.quasar.yandex.ru/m/v3/user"
+IOT_V4 = "https://iot.quasar.yandex.ru/m/v4/user"
 CSRF_PAGE = "https://yandex.ru/quasar"
-SCENARIO_NAME = "Namoz eslatma (bot)"
+SCENARIO_NAME = "Namoz eslatma bot"
+OLD_SCENARIO_NAME = "Namoz eslatma (bot)"
 SCENARIO_TRIGGER = "напоминание о намазе от бота"
 MAX_PHRASE = 100  # Yandex bitta iborani 100 belgigacha qabul qiladi
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -200,20 +202,25 @@ class Client:
     # ---------- stsenariy ----------
     @staticmethod
     def _payload(dev: str, text: str) -> dict:
+        """Ovozli trigger + kolonkada TTS (Yandex'ning hozirgi "actions.v2" formati)."""
         return {
             "name": SCENARIO_NAME,
             "icon": "home",
             "triggers": [{"trigger": {"type": "scenario.trigger.voice", "value": SCENARIO_TRIGGER}}],
             "steps": [{
-                "type": "scenarios.steps.actions",
+                "type": "scenarios.steps.actions.v2",
                 "parameters": {
-                    "requested_speaker_capabilities": [],
-                    "launch_devices": [{
+                    "items": [{
                         "id": dev,
-                        "capabilities": [{
-                            "type": "devices.capabilities.quasar.server_action",
-                            "state": {"instance": "phrase_action", "value": text[:MAX_PHRASE]},
-                        }],
+                        "type": "step.action.item.device",
+                        "value": {
+                            "id": dev,
+                            "item_type": "device",
+                            "capabilities": [{
+                                "type": "devices.capabilities.quasar",
+                                "state": {"instance": "tts", "value": {"text": text[:MAX_PHRASE]}},
+                            }],
+                        },
                     }],
                 },
             }],
@@ -222,34 +229,45 @@ class Client:
     async def _find_scenario(self) -> str:
         data = await self.req("GET", f"{IOT}/scenarios")
         for sc in data.get("scenarios", []):
-            if sc.get("name") == SCENARIO_NAME:
+            if sc.get("name") in (SCENARIO_NAME, OLD_SCENARIO_NAME):
                 return sc["id"]
         return ""
 
-    async def _scenario(self, dev: str, text: str) -> str:
+    async def _scenario(self, dev: str, text: str) -> tuple[str, bool]:
+        """(stsenariy id, hozir yaratildimi)."""
         sid = db.kv_get("ys_scenario") or await self._find_scenario()
+        created = False
         if not sid:
-            data = await self.req("POST", f"{IOT}/scenarios", self._payload(dev, text))
+            try:
+                data = await self.req("POST", f"{IOT_V4}/scenarios", self._payload(dev, text))
+            except YandexError as e:
+                raise YandexError(f"Stsenariy yaratishda xato: {e}")
             sid = data.get("scenario_id") or await self._find_scenario()
             if not sid:
                 raise YandexError("Yandex'da stsenariy yaratib bo'lmadi")
+            created = True
         db.kv_set("ys_scenario", sid)
-        return sid
+        return sid, created
 
     async def say(self, text: str, dev: str | None = None):
         dev = dev or device_id()
         if not dev:
             raise YandexError("Kolonka tanlanmagan")
         text = text.strip()[:MAX_PHRASE]
-        sid = await self._scenario(dev, text)
+        sid, created = await self._scenario(dev, text)
+        if not created:
+            try:
+                await self.req("PUT", f"{IOT_V4}/scenarios/{sid}", self._payload(dev, text))
+            except YandexError as e:
+                # stsenariy ilovada o'chirilgan bo'lsagina qaytadan yaratamiz (dublikat bo'lmasin)
+                if await self._find_scenario() == sid:
+                    raise YandexError(f"Matnni yangilashda xato: {e}")
+                db.kv_set("ys_scenario", "")
+                sid, _ = await self._scenario(dev, text)
         try:
-            await self.req("PUT", f"{IOT}/scenarios/{sid}", self._payload(dev, text))
-        except YandexError:
-            # stsenariy ilovada o'chirilgan bo'lishi mumkin — qaytadan yaratamiz
-            db.kv_set("ys_scenario", "")
-            sid = await self._scenario(dev, text)
-            await self.req("PUT", f"{IOT}/scenarios/{sid}", self._payload(dev, text))
-        await self.req("POST", f"{IOT}/scenarios/{sid}/actions")
+            await self.req("POST", f"{IOT}/scenarios/{sid}/actions")
+        except YandexError as e:
+            raise YandexError(f"Stsenariyni ishga tushirishda xato: {e}")
 
 
 async def say(text: str, cyrillic: bool = True):
