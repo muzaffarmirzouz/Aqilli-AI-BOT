@@ -21,6 +21,7 @@ from bot import db, sources
 from bot.config import ADMIN_IDS, PRAYER_KEYS, TZ
 from bot.regions import DEFAULT_REGION, REGIONS
 
+from . import skill
 from . import station as ys
 from . import store
 
@@ -62,13 +63,17 @@ def enabled(p: store.Profile, k: str) -> bool:
     return (k != "quyosh") if v is None else bool(v)
 
 
-def azan_cmd(p: store.Profile) -> str:
-    return p.azan_cmd or DEFAULT_AZAN_CMD
+def azan_cmd(p: store.Profile, k: str | None = None) -> str:
+    """Foydalanuvchi o'z buyrug'ini yozgan bo'lsa — o'sha; bo'lmasa «Namoz azoni» ko'nikmasi
+    (sozlangan bo'lsa, Plus kerak emas) yoki «включи азан» (Yandex Musiqa, Plus kerak)."""
+    if p.azan_cmd:
+        return p.azan_cmd
+    return skill.launch_command(k) if skill.configured() else DEFAULT_AZAN_CMD
 
 
 def azan_for(p: store.Profile, k: str) -> str | None:
     """Shu namozda matndan keyin Alisa'ga yuboriladigan buyruq (azon) yoki None."""
-    return azan_cmd(p) if p.azan and k not in NO_AZAN else None
+    return azan_cmd(p, k) if p.azan and k not in NO_AZAN else None
 
 
 def spoken(p: store.Profile, text: str) -> str:
@@ -277,11 +282,10 @@ async def cb(c: CallbackQuery, bot: Bot):
         return await c.message.answer(
             "🕌 <b>Azon uchun Alisa'ga qanday buyruq berilsin?</b>\n\n"
             f"Hozirgi: <code>{html.escape(azan_cmd(p))}</code>\n\n"
-            "Bot matnni aytib bo'lgach, Alisa'ga xuddi siz ovoz bilan aytgandek shu buyruqni yuboradi va Alisa "
-            "azonni Yandex Musiqa'dan topib chaladi. Avval kolonkaga o'zingiz «Алиса, включи азан» deb ko'ring — "
-            "yoqqan azon chiqsa, shu buyruq mos.\n\n"
-            "Boshqa variantlar: <code>включи азан мишари рашид</code>, <code>включи азан мекка</code>, "
-            "<code>azon qo'y</code> (o'zbek tili yoqilgan bo'lsa).\n"
+            "Bot matnni aytib bo'lgach, Alisa'ga xuddi siz ovoz bilan aytgandek shu buyruqni yuboradi.\n"
+            + (f"Standart: botning «{html.escape(skill.SKILL_NAME)}» ko'nikmasi — Yandex Plus'siz azon chaladi.\n"
+               if skill.configured() else "Standart «включи азан» Yandex Musiqa'dan chaladi (Yandex Plus kerak).\n")
+            + "Boshqa variant: <code>включи азан мишари рашид</code> (Plus bilan).\n"
             "Asl holiga qaytarish: <code>-</code> · Bekor qilish: /kolonka")
     if act == "cyr":
         p.cyr = 0 if p.cyr else 1
@@ -590,6 +594,7 @@ async def _batch(bot: Bot, k: str, profiles: list[store.Profile]):
 
 async def scheduler(bot: Bot):
     """Har namoz vaqtida yoqilgan barcha foydalanuvchilarning kolonkasiga yuboradi."""
+    asyncio.create_task(skill.serve())  # «Namoz azoni» ko'nikmasi webhook'i (PORT bo'lsa)
     if len(ADMIN_IDS) == 1:  # eski (bitta admin) sozlamalarini ko'chirish
         store.migrate_legacy(next(iter(ADMIN_IDS)))
     while True:
