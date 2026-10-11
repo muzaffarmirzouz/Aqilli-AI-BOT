@@ -19,11 +19,12 @@ _con.execute(
         created INTEGER, updated INTEGER)"""
 )
 _con.commit()
-try:  # eski jadvalga yangi ustun
-    _con.execute("ALTER TABLE ys_users ADD COLUMN scenario_name TEXT")
-    _con.commit()
-except Exception:
-    pass
+for _col in ("scenario_name TEXT", "azan INTEGER DEFAULT 0", "azan_cmd TEXT"):  # eski jadvalga yangi ustunlar
+    try:
+        _con.execute(f"ALTER TABLE ys_users ADD COLUMN {_col}")
+        _con.commit()
+    except Exception:
+        pass
 
 
 @dataclass
@@ -39,6 +40,8 @@ class Profile:
     scenario: str = ""
     scenario_name: str = ""
     csrf_url: str = ""
+    azan: int = 0          # matndan keyin azon (Alisa'ga buyruq) yoqilganmi
+    azan_cmd: str = ""     # Alisa'ga yuboriladigan buyruq (bo'sh — standart)
     texts: dict = field(default_factory=dict)
     enabled: dict = field(default_factory=dict)
     last_err: str = ""
@@ -67,7 +70,7 @@ def _row_to_profile(r) -> Profile:
             d[k] = {}
     for k, v in list(d.items()):
         if v is None:
-            d[k] = 0 if k in ("active", "cyr", "created", "updated") else ""
+            d[k] = 0 if k in ("active", "cyr", "azan", "created", "updated") else ""
     return Profile(**d)
 
 

@@ -427,6 +427,20 @@ class Client:
                 errors.append(f"{name}: {e}")
         return "; ".join(errors)
 
+    async def command(self, text: str, dev: str | None = None):
+        """Alisa'ga ovozli buyruq bergandek (text_action): masalan «включи азан»."""
+        dev = dev or self.p.device_id
+        if not dev:
+            raise YandexError("Kolonka tanlanmagan")
+        action = {"type": "devices.capabilities.quasar.server_action",
+                  "state": {"instance": "text_action", "value": text.strip()[:MAX_PHRASE]}}
+        try:
+            await self.req("POST", f"{IOT}/devices/{dev}/actions", {"actions": [action]}, tries=3, timeout=10)
+        except YandexAuthError:
+            raise
+        except YandexError as e:
+            raise YandexError(f"Alisa'ga buyruq yuborib bo'lmadi: {e}")
+
     async def say(self, text: str, dev: str | None = None):
         dev = dev or self.p.device_id
         if not dev:
@@ -498,25 +512,40 @@ async def reset(uid: int):
             pass
 
 
-async def say(prof: Profile, text: str):
-    """Foydalanuvchining kolonkasida matnni aytadi. Profildagi o'zgarishlar (usul, stsenariy) saqlanadi."""
-    if not prof.ready:
-        raise YandexError("Akkaunt ulanmagan yoki kolonka tanlanmagan")
-    text = to_cyrillic(text) if prof.cyr else text
+def speak_seconds(text: str) -> float:
+    """Kolonka matnni taxminan necha soniyada aytib bo'ladi (keyingi buyruq uni bo'lib qo'ymasin)."""
+    return 2.0 + len(text) / 11.0
+
+
+async def _run(prof: Profile, fn: str, text: str):
     lock = _locks.setdefault(prof.uid, asyncio.Lock())
     async with lock:
         try:
             try:
-                await (await _client(prof)).say(text)
+                await getattr(await _client(prof), fn)(text)
             except YandexAuthError:
                 raise
             except Exception as e:
                 # sessiya eskirgan bo'lishi mumkin — yangisi bilan bir marta qayta urinamiz
                 log.warning("kolonka uid=%s: %s — qayta ulanilmoqda", prof.uid, e)
                 await reset(prof.uid)
-                await (await _client(prof)).say(text)
+                await getattr(await _client(prof), fn)(text)
         finally:
             prof.save()
+
+
+async def say(prof: Profile, text: str, then_command: str | None = None):
+    """Foydalanuvchining kolonkasida matnni aytadi; `then_command` berilsa, matn tugagach Alisa'ga
+    shu buyruqni yuboradi (masalan «включи азан»). Profildagi o'zgarishlar saqlanadi."""
+    if not prof.ready:
+        raise YandexError("Akkaunt ulanmagan yoki kolonka tanlanmagan")
+    text = to_cyrillic(text) if prof.cyr else text
+    if text.strip():
+        await _run(prof, "say", text)
+    if then_command:
+        if text.strip():
+            await asyncio.sleep(speak_seconds(text))
+        await _run(prof, "command", then_command)
 
 
 async def speakers(prof: Profile) -> list[dict]:

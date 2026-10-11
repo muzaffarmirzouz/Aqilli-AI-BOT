@@ -40,6 +40,8 @@ DEFAULT_TEXT = {
     "shom": "Shom namozi vaqti kirdi",
     "xufton": "Xufton namozi vaqti kirdi",
 }
+DEFAULT_AZAN_CMD = "включи азан"
+NO_AZAN = {"quyosh"}  # quyosh chiqishida azon aytilmaydi
 LATE_MIN = 5          # bot qayta ishga tushsa, vaqtdan keyin shuncha daqiqagacha baribir aytadi
 QR_WAIT_SEC = 180     # QR kod amal qilish vaqti
 TEST_COOLDOWN = 15    # «Sinov» tugmasini qayta bosish oralig'i (soniya)
@@ -58,6 +60,15 @@ def text_of(p: store.Profile, k: str) -> str:
 def enabled(p: store.Profile, k: str) -> bool:
     v = p.enabled.get(k)
     return (k != "quyosh") if v is None else bool(v)
+
+
+def azan_cmd(p: store.Profile) -> str:
+    return p.azan_cmd or DEFAULT_AZAN_CMD
+
+
+def azan_for(p: store.Profile, k: str) -> str | None:
+    """Shu namozda matndan keyin Alisa'ga yuboriladigan buyruq (azon) yoki None."""
+    return azan_cmd(p) if p.azan and k not in NO_AZAN else None
 
 
 def spoken(p: store.Profile, text: str) -> str:
@@ -122,12 +133,14 @@ async def panel_text(p: store.Profile) -> str:
         f"Yandex akkaunt: {acc}",
         f"Kolonka: {html.escape(p.device_name or '— (tanlang)')}",
         f"Kirillga o'girish: {'✅' if p.cyr else '❌'}",
+        f"🕌 Matndan keyin azon: {'✅ «' + html.escape(azan_cmd(p)) + '»' if p.azan else '❌'}",
         "",
         "<b>Bugun kolonka aytadi:</b>",
     ]
     for k in PRAYER_KEYS:
         mark = "🔔" if enabled(p, k) else "🔕"
-        lines.append(f"{mark} {NAMES[k]} {times.get(k, '--:--')} — «{html.escape(text_of(p, k))}»")
+        tail = " + 🕌" if azan_for(p, k) else ""
+        lines.append(f"{mark} {NAMES[k]} {times.get(k, '--:--')} — «{html.escape(text_of(p, k))}»{tail}")
     if not times:
         lines.append("\n⚠️ Bugungi namoz vaqtlari hali kiritilmagan.")
     if not p.device_id:
@@ -149,9 +162,11 @@ def panel_kb(p: store.Profile):
     kb.button(text="⏸ O'chirish" if p.active else "▶️ Yoqish", callback_data="ys:on")
     kb.button(text="🔈 Sinov", callback_data="ys:test")
     kb.button(text="📻 Kolonkani tanlash", callback_data="ys:dev")
+    kb.button(text=f"🕌 Azon: {'✅' if p.azan else '❌'}", callback_data="ys:az")
+    kb.button(text="✏️ Azon buyrug'i", callback_data="ys:azc")
     kb.button(text=f"🔤 Kirill: {'✅' if p.cyr else '❌'}", callback_data="ys:cyr")
     kb.button(text="🔌 Uzish", callback_data="ys:off")
-    kb.adjust(3, 3, 2, 2, 1)
+    kb.adjust(3, 3, 2, 2, 2, 1)
     return kb.as_markup()
 
 
@@ -250,6 +265,24 @@ async def cb(c: CallbackQuery, bot: Bot):
         p.save()
         await c.answer("Yoqildi ✅" if p.active else "O'chirildi")
         return await _refresh(c, p)
+    if act == "az":
+        p.azan = 0 if p.azan else 1
+        p.save()
+        await c.answer("Azon yoqildi — «🔈 Kolonkada eshitish» bilan sinab ko'ring" if p.azan else "Azon o'chirildi",
+                       show_alert=bool(p.azan))
+        return await _refresh(c, p)
+    if act == "azc":
+        WAIT[uid] = "azan"
+        await c.answer()
+        return await c.message.answer(
+            "🕌 <b>Azon uchun Alisa'ga qanday buyruq berilsin?</b>\n\n"
+            f"Hozirgi: <code>{html.escape(azan_cmd(p))}</code>\n\n"
+            "Bot matnni aytib bo'lgach, Alisa'ga xuddi siz ovoz bilan aytgandek shu buyruqni yuboradi va Alisa "
+            "azonni Yandex Musiqa'dan topib chaladi. Avval kolonkaga o'zingiz «Алиса, включи азан» deb ko'ring — "
+            "yoqqan azon chiqsa, shu buyruq mos.\n\n"
+            "Boshqa variantlar: <code>включи азан мишари рашид</code>, <code>включи азан мекка</code>, "
+            "<code>azon qo'y</code> (o'zbek tili yoqilgan bo'lsa).\n"
+            "Asl holiga qaytarish: <code>-</code> · Bekor qilish: /kolonka")
     if act == "cyr":
         p.cyr = 0 if p.cyr else 1
         p.save()
@@ -279,8 +312,9 @@ async def cb(c: CallbackQuery, bot: Bot):
             return await c.answer(f"{int(left) + 1} soniyadan keyin qayta bosing", show_alert=True)
         _last_test[uid] = time.time()
         await c.answer("Kolonkaga yuborilmoqda…")
-        text = text_of(p, k) if act == "s" else "Assalomu alaykum. Kolonka namoz vaqtlarini eslatishga tayyor."
-        return await speak(bot, p, text)
+        if act == "s":
+            return await speak(bot, p, text_of(p, k), azan_for(p, k))
+        return await speak(bot, p, "Assalomu alaykum. Kolonka namoz vaqtlarini eslatishga tayyor.")
     if act == "off":
         kb = InlineKeyboardBuilder()
         kb.button(text="🔌 Ha, uzish", callback_data="ys:off2")
@@ -330,7 +364,8 @@ async def show_prayer(c: CallbackQuery, p: store.Profile, k: str):
         await c.message.edit_text(
             f"🕌 <b>{NAMES[k]}</b> (bugun {times.get(k, '--:--')})\n"
             f"Holat: {'🔔 yoqilgan' if enabled(p, k) else '🔕 o‘chiq'}\n\n"
-            f"Kolonka aytadi: «{html.escape(spoken(p, text_of(p, k)))}»",
+            f"Kolonka aytadi: «{html.escape(spoken(p, text_of(p, k)))}»"
+            + (f"\nKeyin azon: «{html.escape(azan_cmd(p))}»" if azan_for(p, k) else ""),
             reply_markup=prayer_kb(p, k))
     except Exception:
         pass  # "message is not modified"
@@ -343,10 +378,11 @@ async def _refresh(c: CallbackQuery, p: store.Profile):
         pass
 
 
-async def speak(bot: Bot, p: store.Profile, text: str):
+async def speak(bot: Bot, p: store.Profile, text: str, then_cmd: str | None = None):
     try:
-        await ys.say(p, text)
-        await bot.send_message(p.uid, f"🔊 Kolonkaga yuborildi: «{html.escape(spoken(p, text))}»")
+        await ys.say(p, text, then_cmd)
+        extra = f"\n🕌 Keyin Alisa'ga: «{html.escape(then_cmd)}»" if then_cmd else ""
+        await bot.send_message(p.uid, f"🔊 Kolonkaga yuborildi: «{html.escape(spoken(p, text))}»{extra}")
     except ys.YandexAuthError as e:
         await bot.send_message(p.uid, f"❌ {_err(e)}\nQayta ulash: /kolonka → «🔌 Uzish», keyin qaytadan ulang.")
     except Exception as e:
@@ -486,6 +522,20 @@ async def receive(m: Message, bot: Bot):
         WAIT.pop(uid, None)
         return await _connected(bot, uid, x_token, login)
 
+    if state == "azan":
+        p = store.get(uid)
+        txt = " ".join((m.text or "").split())
+        if not txt:
+            return await m.answer("Buyruq yozing. Bekor qilish: /kolonka")
+        if len(txt) > ys.MAX_PHRASE:
+            return await m.answer(f"Juda uzun. {ys.MAX_PHRASE} belgigacha yozing.")
+        p.azan_cmd = "" if txt == "-" else txt
+        p.save()
+        WAIT.pop(uid, None)
+        return await m.answer(f"✅ Azon buyrug'i: «{html.escape(azan_cmd(p))}»\n"
+                              "Namozni bosib «🔈 Kolonkada eshitish» bilan sinab ko'ring.",
+                              reply_markup=panel_kb(p))
+
     if state.startswith("text:"):
         k = state.split(":", 1)[1]
         p = store.get(uid)
@@ -508,7 +558,7 @@ async def _send_one(bot: Bot, p: store.Profile, k: str, sem: asyncio.Semaphore):
         if not (p.active and p.ready and enabled(p, k)):
             return False
         try:
-            await ys.say(p, text_of(p, k))
+            await ys.say(p, text_of(p, k), azan_for(p, k))
             return True
         except ys.YandexAuthError:
             p.active = 0
