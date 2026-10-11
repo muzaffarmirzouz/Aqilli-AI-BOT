@@ -64,11 +64,25 @@ async def is_subscribed(bot: Bot, uid: int, use_cache: bool = True) -> bool:
     return ok
 
 
+_seen: dict[int, float] = {}  # faollikni 10 daqiqada bir marta yozamiz
+
+
+def _touch(user, chat):
+    if user and not user.is_bot and (chat is None or chat.type == ChatType.PRIVATE):
+        if time.time() - _seen.get(user.id, 0) > 600:
+            _seen[user.id] = time.time()
+            try:
+                db.touch_user(user.id, user.full_name)
+            except Exception as e:
+                log.warning("touch_user: %s", e)
+
+
 class SubscribeMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         user = data.get("event_from_user")
         chat = data.get("event_chat")
         bot: Bot = data["bot"]
+        _touch(user, chat)
         if not REQUIRED_CHANNEL or not user or user.id in ADMIN_IDS:
             return await handler(event, data)
         if chat is not None and chat.type != ChatType.PRIVATE:

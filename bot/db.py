@@ -31,6 +31,10 @@ for _col in ("theme TEXT", "ad_text TEXT", "ad_contact TEXT", "ad_file TEXT", "l
         _con.execute(f"ALTER TABLE chats ADD COLUMN {_col}")
     except sqlite3.OperationalError:
         pass
+try:  # foydalanuvchi botga oxirgi marta qachon murojaat qilgani (statistika uchun)
+    _con.execute("ALTER TABLE users ADD COLUMN last_seen INTEGER")
+except sqlite3.OperationalError:
+    pass
 _con.commit()
 
 
@@ -59,6 +63,17 @@ def notify_users():
         "SELECT id, COALESCE(region, ?) AS region FROM users WHERE notify=1 AND active=1",
         (DEFAULT_REGION,),
     ).fetchall()
+
+
+def touch_user(uid: int, name: str):
+    """Foydalanuvchi faolligini yozadi (yangi bo'lsa — qo'shadi)."""
+    t = int(time.time())
+    _con.execute(
+        "INSERT INTO users(id,name,created,last_seen) VALUES(?,?,?,?) "
+        "ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen, active=1",
+        (uid, name, t, t),
+    )
+    _con.commit()
 
 
 def all_active_users():

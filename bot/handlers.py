@@ -14,7 +14,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated,
                            KeyboardButton, Message, ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from . import db, jobs, meta, news, prayer_table, sources, subscribe, texts, tgdl, vcrop
+from . import db, jobs, meta, news, prayer_table, sources, statistika, subscribe, texts, tgdl, vcrop
 from .config import AD_CONTACT, ADMIN_IDS, BRAND, REQUIRED_CHANNEL, PRAYER_KEYS, SEND_AT
 from .poster import DEFAULT_THEME, THEMES, default_logo
 from .regions import DEFAULT_REGION, REGIONS
@@ -545,11 +545,9 @@ admin.message.filter(F.from_user.id.in_(ADMIN_IDS), F.chat.type == ChatType.PRIV
 router.include_router(admin)
 
 
-@admin.message(Command("stat"))
-async def a_stats(m: Message):
-    s = db.stats()
-    await m.answer(f"👥 Foydalanuvchilar: {s['users']} (faol {s['active']}, kechki xabar {s['notify']})\n"
-                   f"📢 Kanal/guruhlar: {s['chats']}")
+@admin.message(Command("stat", "statistika"))
+async def a_stats(m: Message, bot: Bot):
+    await m.answer(await statistika.report(bot))
 
 
 @admin.message(Command("vaqt"))
@@ -708,9 +706,8 @@ async def a_panel_cb(c: CallbackQuery, bot: Bot):
         await c.answer()
         return await kolonka.show_panel(bot, c.from_user.id)
     elif act == "stat":
-        st = db.stats()
-        await c.message.answer(f"👥 Foydalanuvchilar: {st['users']} (faol {st['active']}, kechki xabar {st['notify']})\n"
-                               f"📢 Kanal/guruhlar: {st['chats']}")
+        await c.answer("Hisoblanmoqda…")
+        return await c.message.answer(await statistika.report(bot))
     await c.answer()
 
 
@@ -1324,7 +1321,7 @@ async def a_help(m: Message):
         "/kolonka_stat — nechta foydalanuvchi kolonka ulagan\n"
         "/kolonka_cookie — QR ishlamasa, cookie bilan ulash (zaxira)\n"
         "/eslatma_stat — namoz vaqtida xabar oluvchilar soni\n"
-        "/stat — statistika\n"
+        "/stat yoki /statistika — umumiy statistika (foydalanuvchilar, faollik, xizmatlar, majburiy obuna holati)\n"
         "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
         "/meta — Facebook va Instagram ulanishini tekshirish\n"
         "/tekshir namangan 2026-10-07 — vaqt va manbasini ko'rish\n"
