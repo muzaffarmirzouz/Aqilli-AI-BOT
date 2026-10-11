@@ -281,6 +281,9 @@ async def cb(c: CallbackQuery, bot: Bot):
     uid = c.from_user.id
     p = _profile(uid)
 
+    if act == "open":  # «🕌 Namoz vaqtlari» ichidagi tugma
+        await c.answer()
+        return await show_panel(bot, uid)
     if act == "qr":
         await c.answer()
         return await start_qr(bot, uid)
