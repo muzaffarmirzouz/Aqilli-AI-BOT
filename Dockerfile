@@ -13,6 +13,8 @@ RUN mkdir -p fonts && cd fonts \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# videoni tezroq yuklab olish uchun (o'rnatilmasa ham bot ishlaydi)
+RUN pip install --no-cache-dir cryptg || echo "cryptg o'rnatilmadi"
 COPY . .
 
 ENV TZ_NAME=Asia/Tashkent PYTHONUNBUFFERED=1

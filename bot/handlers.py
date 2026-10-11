@@ -14,7 +14,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated,
                            KeyboardButton, Message, ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from . import db, jobs, meta, news, prayer_table, sources, subscribe, texts
+from . import db, jobs, meta, news, prayer_table, sources, subscribe, texts, tgdl
 from .config import AD_CONTACT, ADMIN_IDS, BRAND, REQUIRED_CHANNEL, PRAYER_KEYS, SEND_AT
 from .poster import DEFAULT_THEME, THEMES, default_logo
 from .regions import DEFAULT_REGION, REGIONS
@@ -1088,25 +1088,54 @@ def _vid_kb(vertical: bool, posted: set[str]):
     return kb.as_markup()
 
 
-async def _video_card(m: Message, src: Message):
+def _origin(src: Message, link_ref=None):
+    """Video qaysi kanal postidan kelgan: (chat, message_id) yoki None."""
+    if link_ref:
+        return link_ref
+    o = getattr(src, "forward_origin", None)
+    chat = getattr(o, "chat", None)
+    mid = getattr(o, "message_id", None)
+    if chat is not None and mid:
+        return (f"@{chat.username}" if chat.username else chat.id, mid)
+    fc, fmid = getattr(src, "forward_from_chat", None), getattr(src, "forward_from_message_id", None)
+    if fc is not None and fmid:
+        return (f"@{fc.username}" if fc.username else fc.id, fmid)
+    return None
+
+
+async def _video_card(m: Message, src: Message, link_ref=None):
     """src — video bor xabar. Tekshiradi va yuborish tugmalari bilan karta chiqaradi."""
     if not meta.fb_enabled():
         return await m.answer("❌ Facebook/Instagram ulanmagan (/meta)")
     v = src.video
+    origin = _origin(src, link_ref)
+    hd = tgdl.enabled() and origin is not None  # asl sifatda kanaldan yuklab olish mumkin
+    limit = tgdl.MAX_BYTES if hd else VID_MAX_BYTES
     if v.duration and v.duration > VID_MAX_SEC:
         return await m.answer(f"❌ Video {v.duration // 60}:{v.duration % 60:02d} — 3 daqiqadan uzun. "
                               "3 daqiqagacha bo'lgan video yuboring.")
-    if v.file_size and v.file_size > VID_MAX_BYTES:
-        return await m.answer(f"❌ Video {v.file_size / 1048576:.0f} MB — 20 MB dan katta, bot yuklab ololmaydi.")
+    if v.file_size and v.file_size > limit:
+        tip = ("" if hd else "\nKatta (HD) videolar uchun: kanal postining havolasini yuboring "
+               "(Railway'da TG_API_ID va TG_API_HASH bo'lishi kerak).")
+        return await m.answer(f"❌ Video {v.file_size / 1048576:.0f} MB — {limit // 1048576} MB dan katta.{tip}")
     vertical = bool(v.width and v.height and v.height > v.width)
     caption = src.caption or ""
     kind = "tik (9:16) → Facebook: Reels" if vertical else "yotiq (16:9) → Facebook: oddiy video"
     dur = f"{(v.duration or 0) // 60}:{(v.duration or 0) % 60:02d}"
-    card = await src.reply(f"🎬 <b>Video</b> · {dur} · {kind}, Instagram: Reels\n"
-                           f"Izoh: {'bor' if caption else 'yoʻq'} — o'zgarishsiz joylanadi.\n\nQayerga joylaymiz?",
+    short = min(v.width or 0, v.height or 0)
+    q = f"{short}p" if short else "?"
+    warn = ""
+    if short and short < 720:
+        warn = (f"\n⚠️ <b>Sifat past ({q})</b> — Facebook bunday videoni kam ko'rsatadi. "
+                "Kanalga videoni HD (720p/1080p) sifatda joylang.")
+    card = await src.reply(f"🎬 <b>Video</b> · {dur} · {q} · {kind}, Instagram: Reels\n"
+                           f"Izoh: {'bor' if caption else 'yoʻq'} — o'zgarishsiz joylanadi."
+                           f"{'' if hd else chr(10) + 'ℹ️ Telegram nusxasi ishlatiladi (asl sifat uchun havola yuboring).'}"
+                           f"{warn}\n\nQayerga joylaymiz?",
                            reply_markup=_vid_kb(vertical, set()))
     db.kv_set(_vid_key(card.chat.id, card.message_id),
-              json.dumps({"file_id": v.file_id, "caption": caption, "vertical": vertical}, ensure_ascii=False))
+              json.dumps({"file_id": v.file_id, "caption": caption, "vertical": vertical,
+                          "origin": list(origin) if hd else None}, ensure_ascii=False))
 
 
 @admin.message(F.video)
@@ -1125,7 +1154,7 @@ async def vid_link(m: Message, bot: Bot):
                               f"<i>{html.escape(str(e))[:150]}</i>")
     if not fm.video:
         return await fm.reply("❌ Bu postda video yo'q (yoki video fayl sifatida yuborilgan).")
-    await _video_card(m, fm)
+    await _video_card(m, fm, link_ref=(src_chat, int(mm.group(3))))
 
 
 @router.callback_query(F.data.startswith("vd:") | F.data.startswith("vdy:") | (F.data == "vdk"))
@@ -1159,10 +1188,13 @@ async def vid_cb(c: CallbackQuery, bot: Bot):
     wait = await c.message.answer("⏳ Video yuklanmoqda… Meta uni qayta ishlashi 1–3 daqiqa oladi.")
     ok, fail, done = [], [], []
     try:
-        data = (await bot.download(st["file_id"])).read()
+        if st.get("origin") and tgdl.enabled():
+            data = await tgdl.download_video(*st["origin"])  # asl sifat (HD)
+        else:
+            data = (await bot.download(st["file_id"])).read()
     except Exception as e:
         data = None
-        fail.append(f"❌ Videoni Telegram'dan yuklab bo'lmadi — {html.escape(str(e))[:100]}")
+        fail.append(f"❌ Videoni Telegram'dan yuklab bo'lmadi — {html.escape(str(e))[:150]}")
     if data:
         for k in chosen:
             try:
