@@ -139,7 +139,10 @@ Kodi: `yandex/` papkasida — `store.py` (har foydalanuvchi sozlamalari, `ys_use
    Boshqa qurilmadan — Yandex ilovasida QR'ni skanerlaydi; shu telefondan — «📱 Telefonda ochish». Kod 3 daqiqa amal qiladi.
 2. **📻 Kolonkani tanlash** → **🔈 Sinov** → **▶️ Yoqish**.
 3. Har namozni bosib matnini yozadi (100 belgigacha), yoqadi/o'chiradi.
-4. **🔌 Uzish** — token va barcha sozlamalar botdan o'chiriladi. Yandex tomonida ham: id.yandex.ru → «Kirish va qurilmalar».
+4. **🕌 Azon** — yoqilsa, kolonka matnni aytib bo'lgach Alisa'ga «включи азан» buyrug'i yuboriladi va Alisa azonni
+   Yandex Musiqa'dan chaladi (Quyoshdan tashqari). «✏️ Azon buyrug'i» bilan boshqa buyruq yozish mumkin
+   (masalan «включи азан мишари рашид»). O'z MP3 faylini chaldirib bo'lmaydi — bulutdan faqat Alisa buyrug'i.
+5. **🔌 Uzish** — token va barcha sozlamalar botdan o'chiriladi. Yandex tomonida ham: id.yandex.ru → «Kirish va qurilmalar».
 - O'zbekcha talaffuz uchun «Дом с Алисой»da kolonka ⚙️ → «Assistent tili» → «O‘zbekcha + Ruscha». «🔤 Kirill» odatda o'chiq turadi
   (rus tilidagi kolonkalar uchun yoqiladi — lotin matnni rus ovozi o'qiy oladigan kirillga o'giradi).
 
