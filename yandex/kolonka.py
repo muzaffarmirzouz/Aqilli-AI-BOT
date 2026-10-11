@@ -49,6 +49,15 @@ TEST_COOLDOWN = 15    # «Sinov» tugmasini qayta bosish oralig'i (soniya)
 PARALLEL = 15         # bir vaqtda nechta kolonkaga yuboriladi
 
 WAIT: dict[int, str] = {}            # uid -> "cookie" | "text:<namoz>"
+_TASKS: set[asyncio.Task] = set()    # fon vazifalariga havola (xotiradan tushib qolmasin)
+STATUS: dict = {"tick": None, "started": None, "batches": []}  # eslatuvchi holati (/kolonka_tekshir)
+
+
+def _bg(coro) -> asyncio.Task:
+    t = asyncio.create_task(coro)
+    _TASKS.add(t)
+    t.add_done_callback(_TASKS.discard)
+    return t
 QR_TASKS: dict[int, asyncio.Task] = {}
 _last_test: dict[int, float] = {}
 
@@ -97,6 +106,17 @@ def region_of(uid: int) -> str:
 async def times_for(region: str, d: date | None = None) -> dict:
     rec = await sources.get_prayer(region, d or now().date())
     return (rec or {}).get("times") or {}
+
+
+async def next_prayer(p: store.Profile) -> str:
+    """«Shom 17:44» — keyingi yoqilgan namoz (bugun yoki ertaga)."""
+    n = now()
+    for d in (n.date(), n.date() + timedelta(days=1)):
+        times = await times_for(region_of(p.uid), d)
+        for k in PRAYER_KEYS:
+            if enabled(p, k) and times.get(k) and _at(d, times[k]) > n:
+                return f"{NAMES[k]} {times[k]}" + ("" if d == n.date() else " (ertaga)")
+    return "—"
 
 
 def _err(e: Exception) -> str:
@@ -148,6 +168,8 @@ async def panel_text(p: store.Profile) -> str:
         lines.append(f"{mark} {NAMES[k]} {times.get(k, '--:--')} — «{html.escape(text_of(p, k))}»{tail}")
     if not times:
         lines.append("\n⚠️ Bugungi namoz vaqtlari hali kiritilmagan.")
+    if p.active and p.device_id:
+        lines.append(f"\n⏰ Keyingi eslatma: {await next_prayer(p)}")
     if not p.device_id:
         lines.append("\n👉 «📻 Kolonkani tanlash» ni bosing.")
     elif not p.active:
@@ -210,10 +232,22 @@ async def cmd_diag(m: Message):
     if not p.connected:
         return await m.answer("Avval Yandex akkauntini ulang: /kolonka")
     await m.answer("⏳ Yandex tekshirilmoqda…")
+    head = [
+        f"Holat: {'✅ yoqilgan' if p.active else '⏸ O‘CHIQ — «▶️ Yoqish» ni bosing'}",
+        f"Kolonka: {p.device_name or '— tanlanmagan'} · Azon: {'✅' if p.azan else '❌'}",
+        f"Keyingi eslatma: {await next_prayer(p) if p.active else '—'}",
+        f"Eslatuvchi: ishga tushgan {STATUS['started'] or '—'}, oxirgi tekshiruv {STATUS['tick'] or '—'}",
+    ]
+    if p.last_err:
+        head.append(f"Oxirgi xato ({p.last_err_day}): {p.last_err[:200]}")
+    mine = [b for b in STATUS["batches"] if p.uid in b.get("uids", ())][-5:]
+    for b in mine:
+        head.append(f"• {b['time']} {NAMES[b['k']]}: {b['res'].get(p.uid, '?')}")
+    head.append("")
     try:
-        lines = await ys.diagnose(p)
+        lines = head + await ys.diagnose(p)
     except Exception as e:
-        lines = [f"❌ {type(e).__name__}: {e}"]
+        lines = head + [f"❌ {type(e).__name__}: {e}"]
     await m.answer("🔍 <b>Kolonka tekshiruvi</b>\n" + html.escape("\n".join(lines))[:3900])
 
 
@@ -268,7 +302,10 @@ async def cb(c: CallbackQuery, bot: Bot):
             return await c.answer("Avval kolonkani tanlang", show_alert=True)
         p.active = 0 if p.active else 1
         p.save()
-        await c.answer("Yoqildi ✅" if p.active else "O'chirildi")
+        if p.active:
+            await c.answer(f"Yoqildi ✅ Keyingi eslatma: {await next_prayer(p)}", show_alert=True)
+        else:
+            await c.answer("O'chirildi")
         return await _refresh(c, p)
     if act == "az":
         p.azan = 0 if p.azan else 1
@@ -452,7 +489,7 @@ async def start_qr(bot: Bot, uid: int):
                                    reply_markup=kb.as_markup())
     else:
         msg = await bot.send_message(uid, caption, reply_markup=kb.as_markup())
-    QR_TASKS[uid] = asyncio.create_task(_wait_qr(bot, uid, qr, msg.message_id))
+    QR_TASKS[uid] = _bg(_wait_qr(bot, uid, qr, msg.message_id))
 
 
 async def _wait_qr(bot: Bot, uid: int, qr: ys.QrLogin, msg_id: int):
@@ -556,15 +593,18 @@ async def receive(m: Message, bot: Bot):
 
 
 # ---------------- har kungi yuboruvchi ----------------
-async def _send_one(bot: Bot, p: store.Profile, k: str, sem: asyncio.Semaphore):
+async def _send_one(bot: Bot, p: store.Profile, k: str, sem: asyncio.Semaphore, res: dict):
     async with sem:
         p = store.get(p.uid)  # eng yangi sozlamalar (foydalanuvchi shu daqiqada o'zgartirgan bo'lishi mumkin)
         if not (p.active and p.ready and enabled(p, k)):
+            res[p.uid] = "o'tkazildi (o'chiq)"
             return False
         try:
             await ys.say(p, text_of(p, k), azan_for(p, k))
+            res[p.uid] = "✅ yuborildi"
             return True
         except ys.YandexAuthError:
+            res[p.uid] = "❌ token bekor — o'chirildi"
             p.active = 0
             p.save()
             try:
@@ -574,6 +614,7 @@ async def _send_one(bot: Bot, p: store.Profile, k: str, sem: asyncio.Semaphore):
             except Exception:
                 pass
         except Exception as e:
+            res[p.uid] = f"❌ {str(e)[:150]}"
             log.warning("kolonka uid=%s %s: %s", p.uid, k, e)
             today = now().date().isoformat()
             if p.last_err_day != today:  # kuniga bir martadan ko'p bezovta qilmaymiz
@@ -588,13 +629,17 @@ async def _send_one(bot: Bot, p: store.Profile, k: str, sem: asyncio.Semaphore):
 
 async def _batch(bot: Bot, k: str, profiles: list[store.Profile]):
     sem = asyncio.Semaphore(PARALLEL)
-    res = await asyncio.gather(*(_send_one(bot, p, k, sem) for p in profiles))
-    log.info("kolonka %s: %d/%d yuborildi", k, sum(1 for r in res if r), len(profiles))
+    res: dict[int, str] = {}
+    rec = {"k": k, "time": now().strftime("%d.%m %H:%M:%S"), "uids": {p.uid for p in profiles}, "res": res}
+    STATUS["batches"] = (STATUS["batches"] + [rec])[-30:]
+    out = await asyncio.gather(*(_send_one(bot, p, k, sem, res) for p in profiles), return_exceptions=True)
+    log.info("kolonka %s: %d/%d yuborildi", k, sum(1 for r in out if r is True), len(profiles))
 
 
 async def scheduler(bot: Bot):
     """Har namoz vaqtida yoqilgan barcha foydalanuvchilarning kolonkasiga yuboradi."""
-    asyncio.create_task(skill.serve())  # «Namoz azoni» ko'nikmasi webhook'i (PORT bo'lsa)
+    _bg(skill.serve())  # «Namoz azoni» ko'nikmasi webhook'i (PORT bo'lsa)
+    STATUS["started"] = now().strftime("%d.%m %H:%M")
     if len(ADMIN_IDS) == 1:  # eski (bitta admin) sozlamalarini ko'chirish
         store.migrate_legacy(next(iter(ADMIN_IDS)))
     while True:
@@ -602,6 +647,7 @@ async def scheduler(bot: Bot):
         try:
             n = now()
             today = n.date()
+            STATUS["tick"] = n.strftime("%H:%M:%S")
             by_region: dict[str, list[store.Profile]] = {}
             for p in store.active_profiles():
                 by_region.setdefault(region_of(p.uid), []).append(p)
@@ -618,7 +664,7 @@ async def scheduler(bot: Bot):
                         db.kv_set(flag, today.isoformat())
                         targets = [p for p in profs if enabled(p, k)]
                         if targets:
-                            asyncio.create_task(_batch(bot, k, targets))
+                            _bg(_batch(bot, k, targets))
                     elif t > n:
                         wait = min(wait, (t - n).total_seconds())
         except Exception as e:
