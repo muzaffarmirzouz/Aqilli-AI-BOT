@@ -1313,6 +1313,7 @@ async def a_help(m: Message):
         "⚙️ Admin panel — menyudagi tugma (rang, kanallar, statistika)\n"
         "📰 Yangilik rasmi — rasm yuboring, izohiga sarlavha yozing (urg'u: *so'z*, teg: [Tezkor])\n"
         "/kolonka — 🔊 Yandex Stansiya: namoz vaqtida kolonka siz yozgan matnni aytadi\n"
+        "/kolonka_tekshir — Yandex ulanishini batafsil tekshirish\n"
         "/stat — statistika\n"
         "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
         "/meta — Facebook va Instagram ulanishini tekshirish\n"
