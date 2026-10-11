@@ -6,8 +6,8 @@ ham shu usulda ishlaydi):
   1) akkauntda bitta yordamchi stsenariy yaratiladi ("Namoz eslatma bot");
   2) gapirish kerak bo'lganda stsenariydagi matn yangilanadi va stsenariy ishga tushiriladi —
      kolonka matnni ovoz chiqarib aytadi (quasar tts).
-Kirish: brauzer cookie'lari bir marta Yandex x-token'iga almashtiriladi (bazada faqat token saqlanadi),
-har ulanishda token bilan yangi sessiya ochiladi.
+Kirish: QR kod (Yandex ilovasida skanerlanadi) yoki brauzer cookie'lari orqali Yandex x-token olinadi.
+Bazada faqat token saqlanadi (yandex/store.py, har foydalanuvchi alohida).
 """
 import asyncio
 import json
@@ -16,7 +16,7 @@ import re
 
 import aiohttp
 
-from bot import db
+from .store import Profile
 
 log = logging.getLogger(__name__)
 
@@ -36,28 +36,11 @@ class YandexError(Exception):
     pass
 
 
-# ---------------- sozlamalar (bazada) ----------------
-def token() -> str:
-    """Yandex x-token (cookie'dan bir marta olinadi, ~1 yil amal qiladi)."""
-    return db.kv_get("ys_xtoken") or ""
+class YandexAuthError(YandexError):
+    """Token bekor qilingan/eskirgan — foydalanuvchi qaytadan ulashi kerak."""
 
 
-def set_token(x_token: str, login: str = ""):
-    db.kv_set("ys_xtoken", x_token)
-    db.kv_set("ys_login", login)
-    db.kv_set("ys_cookie", "")     # eski versiyadan qolgan cookie kerak emas
-    db.kv_set("ys_scenario", "")   # yangi akkaunt bo'lishi mumkin
-    db.kv_set("ys_mode", "")
-
-
-def login_name() -> str:
-    return db.kv_get("ys_login") or ""
-
-
-def device_id() -> str:
-    return db.kv_get("ys_device") or ""
-
-
+# ---------------- cookie -> token ----------------
 def _domain(d: str) -> str:
     """'.passport.yandex.uz' -> 'yandex.uz' (Yandex domeni bo'lmasa — '')."""
     m = re.search(r"(yandex\.[a-z]{2,3})$", d.lstrip(".").lower())
@@ -169,8 +152,9 @@ def to_cyrillic(text: str) -> str:
 
 # ---------------- HTTP ----------------
 class Client:
-    def __init__(self, x_token: str | None = None):
-        self.x_token = x_token or token()
+    def __init__(self, prof: Profile):
+        self.p = prof
+        self.x_token = prof.x_token
         self.csrf = ""
 
     async def __aenter__(self):
@@ -202,8 +186,8 @@ class Client:
         except ValueError:
             resp = {}
         if resp.get("status") != "ok":
-            raise YandexError("Yandex token eskirgan yoki bekor qilingan — akkauntni qaytadan ulang. "
-                              f"({text[:150]})")
+            raise YandexAuthError("Yandex akkaunti uzilgan (token bekor qilingan yoki eskirgan) — "
+                                  "qaytadan ulang.")
         host = resp.get("passport_host") or "https://passport.yandex.ru"
         async with self.s.get(f"{host}/auth/session/", params={"track_id": resp["track_id"]},
                               allow_redirects=False) as r:
@@ -216,7 +200,7 @@ class Client:
         tried = []
         urls = [CSRF_PAGE, CSRF_PAGE + "?storage=1", "https://yandex.ru/iot",
                 "https://quasar.yandex.ru/csrf_token", "https://frontend.vh.yandex.ru/csrf_token"]
-        good = db.kv_get("ys_csrf_url")
+        good = self.p.csrf_url
         if good in urls:  # oxirgi marta ishlagan manzil birinchi
             urls.remove(good)
             urls.insert(0, good)
@@ -243,8 +227,7 @@ class Client:
                         tok = t
             if tok:
                 log.info("csrf: %s", url)
-                if good != url:
-                    db.kv_set("ys_csrf_url", url)
+                self.p.csrf_url = url
                 self.csrf = tok
                 return tok
             note = "captcha" if "captcha" in (final + body[:3000]).lower() else f"{status}"
@@ -288,7 +271,7 @@ class Client:
                 data = {}
             if status >= 400 or (data and data.get("status") not in (None, "ok")):
                 if status == 401:
-                    raise YandexError("Yandex akkauntiga kirish rad etildi — akkauntni qaytadan ulang.")
+                    raise YandexAuthError("Yandex akkauntiga kirish rad etildi — akkauntni qaytadan ulang.")
                 raise YandexError(f"Yandex javobi {status}: {text[:200]}")
             return data
 
@@ -328,9 +311,9 @@ class Client:
             out.append("✅ CSRF token olindi")
         except YandexError as e:
             out.append(f"❌ {e}")
-        out.append(f"Saqlangan stsenariy: {db.kv_get('ys_scenario') or '—'} · usul: {db.kv_get('ys_mode') or 'aniqlanmagan'}"
-                   f" · kolonka id: {device_id()[:8] or '—'}…")
-        db.kv_set("ys_mode", "")  # tekshiruvdan keyin keyingi Sinov hamma usullarni qaytadan sinaydi
+        out.append(f"Saqlangan stsenariy: {self.p.scenario or '—'} · usul: {self.p.mode or 'aniqlanmagan'}"
+                   f" · kolonka id: {self.p.device_id[:8] or '—'}…")
+        self.p.mode = ""  # tekshiruvdan keyin keyingi Sinov hamma usullarni qaytadan sinaydi
         return out
 
     # ---------- qurilmalar ----------
@@ -418,7 +401,7 @@ class Client:
             "tts": {"type": "devices.capabilities.quasar",
                     "state": {"instance": "tts", "value": {"text": text}}},
         }
-        mode = db.kv_get("ys_mode") or ""
+        mode = self.p.mode or ""
         if mode == "scenario":
             return False
         order = [mode] if mode in variants else list(variants)
@@ -426,25 +409,25 @@ class Client:
             try:
                 await self.req("POST", f"{IOT}/devices/{dev}/actions", {"actions": [variants[name]]},
                                tries=2, timeout=10)
-                db.kv_set("ys_mode", name)
+                self.p.mode = name
                 log.info("kolonka: to'g'ridan-to'g'ri (%s) ishladi", name)
                 return True
             except YandexError as e:
                 log.warning("to'g'ridan-to'g'ri %s: %s", name, e)
         if not mode:
-            db.kv_set("ys_mode", "scenario")  # bu akkauntda faqat stsenariy orqali
+            self.p.mode = "scenario"  # bu akkauntda faqat stsenariy orqali
         elif mode in variants:
-            db.kv_set("ys_mode", "")  # ilgari ishlagan usul buzildi — keyingi safar hammasini sinaymiz
+            self.p.mode = ""  # ilgari ishlagan usul buzildi — keyingi safar hammasini sinaymiz
         return False
 
     async def say(self, text: str, dev: str | None = None):
-        dev = dev or device_id()
+        dev = dev or self.p.device_id
         if not dev:
             raise YandexError("Kolonka tanlanmagan")
         text = text.strip()[:MAX_PHRASE]
         if await self._direct(dev, text):
             return
-        sid = db.kv_get("ys_scenario") or ""
+        sid = self.p.scenario or ""
         if sid:
             try:
                 await self.req("PUT", f"{IOT_V4}/scenarios/{sid}", self._payload(dev, text))
@@ -460,47 +443,136 @@ class Client:
                     raise YandexError(f"Matnni yangilashda xato: {e}")
             else:
                 sid = await self._create(dev, text)
-            db.kv_set("ys_scenario", sid)
+            self.p.scenario = sid
         try:
             await self.req("POST", f"{IOT}/scenarios/{sid}/actions")
         except YandexError as e:
             raise YandexError(f"Stsenariyni ishga tushirishda xato: {e}")
 
 
-# Doimiy sessiya: har safar qaytadan kirmaslik uchun (birinchi buyruqdan keyin 1 ta so'rov yetadi)
-_shared: Client | None = None
-_lock = asyncio.Lock()
+# Har foydalanuvchiga doimiy sessiya (har safar qaytadan kirmaslik uchun). Ko'pi bilan MAX_SESSIONS ta.
+MAX_SESSIONS = 300
+_sessions: dict[int, Client] = {}
+_locks: dict[int, asyncio.Lock] = {}
 
 
-async def _client() -> Client:
-    global _shared
-    if _shared and not _shared.s.closed and _shared.x_token == token():
-        return _shared
-    await reset()
-    c = Client()
+async def _client(prof: Profile) -> Client:
+    c = _sessions.get(prof.uid)
+    if c and not c.s.closed and c.x_token == prof.x_token:
+        c.p = prof  # eng yangi sozlamalar
+        return c
+    await reset(prof.uid)
+    if len(_sessions) >= MAX_SESSIONS:  # eng eskisini yopamiz
+        await reset(next(iter(_sessions)))
+    c = Client(prof)
     await c.__aenter__()
-    _shared = c
+    _sessions[prof.uid] = c
     return c
 
 
-async def reset():
-    """Sessiyani yopadi (akkaunt almashsa yoki xato bo'lsa)."""
-    global _shared
-    if _shared:
+async def reset(uid: int):
+    """Foydalanuvchi sessiyasini yopadi (uzganda, akkaunt almashganda yoki xatoda)."""
+    c = _sessions.pop(uid, None)
+    if c:
         try:
-            await _shared.__aexit__(None, None, None)
+            await c.__aexit__(None, None, None)
         except Exception:
             pass
-    _shared = None
 
 
-async def say(text: str, cyrillic: bool = True):
-    text = to_cyrillic(text) if cyrillic else text
-    async with _lock:
+async def say(prof: Profile, text: str):
+    """Foydalanuvchining kolonkasida matnni aytadi. Profildagi o'zgarishlar (usul, stsenariy) saqlanadi."""
+    if not prof.ready:
+        raise YandexError("Akkaunt ulanmagan yoki kolonka tanlanmagan")
+    text = to_cyrillic(text) if prof.cyr else text
+    lock = _locks.setdefault(prof.uid, asyncio.Lock())
+    async with lock:
         try:
-            await (await _client()).say(text)
-        except Exception as e:
-            # sessiya eskirgan bo'lishi mumkin — yangisi bilan bir marta qayta urinamiz
-            log.warning("kolonka (doimiy sessiya): %s — qayta ulanilmoqda", e)
-            await reset()
-            await (await _client()).say(text)
+            try:
+                await (await _client(prof)).say(text)
+            except YandexAuthError:
+                raise
+            except Exception as e:
+                # sessiya eskirgan bo'lishi mumkin — yangisi bilan bir marta qayta urinamiz
+                log.warning("kolonka uid=%s: %s — qayta ulanilmoqda", prof.uid, e)
+                await reset(prof.uid)
+                await (await _client(prof)).say(text)
+        finally:
+            prof.save()
+
+
+async def speakers(prof: Profile) -> list[dict]:
+    async with _locks.setdefault(prof.uid, asyncio.Lock()):
+        try:
+            return await (await _client(prof)).speakers()
+        finally:
+            prof.save()
+
+
+async def diagnose(prof: Profile) -> list[str]:
+    async with _locks.setdefault(prof.uid, asyncio.Lock()):
+        await reset(prof.uid)
+        try:
+            return await (await _client(prof)).diagnose()
+        finally:
+            prof.save()
+
+
+# ---------------- QR orqali kirish (Home Assistant YandexStation usuli) ----------------
+_PWL = "https://passport.yandex.ru/pwl-yandex"
+
+
+class QrLogin:
+    """1) start() -> havola (QR ichida); 2) foydalanuvchi Yandex ilovasida skanerlaydi;
+    3) check() -> (x_token, login) yoki None (hali tasdiqlanmagan)."""
+
+    def __init__(self):
+        self.s = aiohttp.ClientSession(headers={"User-Agent": UA}, cookie_jar=aiohttp.CookieJar(),
+                                       timeout=aiohttp.ClientTimeout(total=20))
+        self.headers: dict = {}
+        self.auth: dict = {}
+
+    async def close(self):
+        await self.s.close()
+
+    async def start(self) -> str:
+        async with self.s.get(_PWL) as r:
+            body = await r.text()
+            status = r.status
+        m = re.search(r'__CSRF__ = "([^"]+)', body)
+        if status != 200 or not m:
+            raise YandexError(f"Yandex kirish sahifasi ochilmadi ({status})")
+        self.headers = {"X-CSRF-Token": m.group(1)}
+        async with self.s.post(f"{_PWL}/api/passport/auth/password/submit",
+                               json={"retpath": "https://passport.yandex.ru/"}, headers=self.headers) as r:
+            if r.status != 200:
+                raise YandexError(f"Yandex QR seansini boshlab bo'lmadi ({r.status})")
+            self.auth = await r.json(content_type=None)
+        async with self.s.post(f"{_PWL}/api/passport/auth/magic/code",
+                               data={"location_id": "0", "magic_track_id": self.auth.get("track_id", ""),
+                                     "track_id": ""}, headers=self.headers) as r:
+            if r.status != 200:
+                raise YandexError(f"QR kod olinmadi ({r.status})")
+            resp = await r.json(content_type=None)
+        link = resp.get("link")
+        if not link:
+            raise YandexError(f"QR kod olinmadi: {str(resp)[:150]}")
+        return link
+
+    async def check(self) -> tuple[str, str] | None:
+        async with self.s.post(f"{_PWL}/api/passport/auth/magic/code/status",
+                               json=self.auth, headers=self.headers) as r:
+            if r.status != 200:
+                return None
+            resp = await r.json(content_type=None)
+        if resp.get("state") != "otp_auth_finished":
+            return None
+        async with self.s.post(f"{_PWL}/api/passport/sessions/get_session",
+                               data={"track_id": resp.get("trackId", "")}, headers=self.headers) as r:
+            if r.status != 200:
+                raise YandexError(f"Yandex sessiyasi olinmadi ({r.status})")
+        cookies = "; ".join(f"{c.key}={c.value}" for c in self.s.cookie_jar
+                            if str(c["domain"]).endswith("yandex.ru"))
+        if "Session_id" not in cookies:
+            raise YandexError("Yandex sessiya cookie'sini bermadi — qaytadan urinib ko'ring")
+        return await cookies_to_token(cookies)

@@ -1,5 +1,6 @@
-"""🔊 Yandex Stansiya (Alisa) bilan ishlash: namoz vaqtida kolonka gapiradi.
+"""🔊 Kolonka eslatma: namoz vaqtida foydalanuvchilarning Yandex Stansiyasi gapiradi.
 
-- station.py — Yandex bilan bog'lanish (cookie, kolonkalar ro'yxati, gapirtirish)
+- store.py   — har foydalanuvchining sozlamalari (ys_users jadvali)
+- station.py — Yandex bilan bog'lanish (QR kirish, token, kolonkalar ro'yxati, gapirtirish)
 - kolonka.py — botdagi /kolonka paneli va har kungi eslatuvchi
 """
