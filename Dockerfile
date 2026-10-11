@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends curl fonts-dejavu-core \
+RUN apt-get update && apt-get install -y --no-install-recommends curl fonts-dejavu-core ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Poster shriftlari (Google Fonts, OFL litsenziya)

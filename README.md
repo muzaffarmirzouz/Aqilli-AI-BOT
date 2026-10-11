@@ -46,7 +46,9 @@ Token ishlamay qolsa (parol o'zgarsa, ilova ruxsati olib tashlansa) — bot admi
 ## 🎬 Video: Telegram → Facebook va Instagram
 Botga kanal postining havolasini (`https://t.me/Namanganliklar_uz/1234`) yuboring yoki videoni forward qiling.
 - Tik (9:16) video → Facebook **Reels**, yotiq (16:9) → Facebook **oddiy video**; Instagram'ga har doim **Reels**
-- Izoh — videoning o'z izohi, o'zgarishsiz (qo'shimcha matnsiz)
+- Instagram: izoh — videoning o'z izohi, o'zgarishsiz
+- **Facebook:** videodagi bo'sh joylar/shablon avtomatik qirqiladi (masalan tik ramkaga solingan yotiq video → yotiq oddiy video),
+  izoh oxiriga hashtaglar qo'shiladi: `#Namangan #Namanganliklar #tezkor #Yangiliklar #news` (o'zgartirish: `FB_HASHTAGS`)
 - Chegara: 3 daqiqagacha. **Asl sifat (HD, 250 MB gacha):** Railway'ga `TG_API_ID` va `TG_API_HASH` qo'shing
   (https://my.telegram.org → API development tools) va kanal postining havolasini yuboring — bot videoni kanaldan asl
   sifatda oladi. Bular bo'lmasa — Telegram nusxasi, 20 MB gacha. Bot kanalda admin bo'lishi kerak

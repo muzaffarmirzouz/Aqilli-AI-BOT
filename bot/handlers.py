@@ -14,7 +14,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated,
                            KeyboardButton, Message, ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from . import db, jobs, meta, news, prayer_table, sources, subscribe, texts, tgdl
+from . import db, jobs, meta, news, prayer_table, sources, subscribe, texts, tgdl, vcrop
 from .config import AD_CONTACT, ADMIN_IDS, BRAND, REQUIRED_CHANNEL, PRAYER_KEYS, SEND_AT
 from .poster import DEFAULT_THEME, THEMES, default_logo
 from .regions import DEFAULT_REGION, REGIONS
@@ -1059,6 +1059,17 @@ async def news_publish(c: CallbackQuery, bot: Bot):
 # ================= VIDEO: Telegram'dan Facebook va Instagram'ga =================
 VID_MAX_SEC = 180            # 3 daqiqagacha
 VID_MAX_BYTES = 20 * 1024 * 1024  # Telegram bot yuklab oladigan chegara
+FB_HASHTAGS = os.getenv("FB_HASHTAGS", "#Namangan #Namanganliklar #tezkor #Yangiliklar #news").strip()
+
+
+def _fb_video_caption(caption: str) -> str:
+    """Facebook video izohi: asl izoh + mavzu hashtaglari (Instagram'ga qo'shilmaydi)."""
+    caption = (caption or "").rstrip()
+    if not FB_HASHTAGS:
+        return caption
+    return f"{caption}\n\n{FB_HASHTAGS}" if caption else FB_HASHTAGS
+
+
 _TME = re.compile(r"t\.me/(?:c/(\d+)|([A-Za-z0-9_]{4,}))/(\d+)")
 
 
@@ -1072,7 +1083,7 @@ def _vid_get(c: CallbackQuery) -> dict | None:
 
 
 def _vid_targets(vertical: bool) -> list[tuple[str, str]]:
-    return [("fb", "📘 Facebook (Reels)" if vertical else "📘 Facebook (video)"),
+    return [("fb", "📘 Facebook"),
             ("ig", "📸 Instagram (Reels)")]
 
 
@@ -1120,7 +1131,7 @@ async def _video_card(m: Message, src: Message, link_ref=None):
         return await m.answer(f"❌ Video {v.file_size / 1048576:.0f} MB — {limit // 1048576} MB dan katta.{tip}")
     vertical = bool(v.width and v.height and v.height > v.width)
     caption = src.caption or ""
-    kind = "tik (9:16) → Facebook: Reels" if vertical else "yotiq (16:9) → Facebook: oddiy video"
+    kind = "tik (9:16)" if vertical else "yotiq (16:9)"
     dur = f"{(v.duration or 0) // 60}:{(v.duration or 0) % 60:02d}"
     short = min(v.width or 0, v.height or 0)
     q = f"{short}p" if short else "?"
@@ -1128,8 +1139,9 @@ async def _video_card(m: Message, src: Message, link_ref=None):
     if short and short < 720:
         warn = (f"\n⚠️ <b>Sifat past ({q})</b> — Facebook bunday videoni kam ko'rsatadi. "
                 "Kanalga videoni HD (720p/1080p) sifatda joylang.")
-    card = await src.reply(f"🎬 <b>Video</b> · {dur} · {q} · {kind}, Instagram: Reels\n"
-                           f"Izoh: {'bor' if caption else 'yoʻq'} — o'zgarishsiz joylanadi."
+    card = await src.reply(f"🎬 <b>Video</b> · {dur} · {q} · {kind}\n"
+                           "📘 Facebook: bo'sh joylar avtomatik qirqiladi + hashtaglar\n"
+                           "📸 Instagram: Reels, izoh o'zgarishsiz"
                            f"{'' if hd else chr(10) + 'ℹ️ Telegram nusxasi ishlatiladi (asl sifat uchun havola yuboring).'}"
                            f"{warn}\n\nQayerga joylaymiz?",
                            reply_markup=_vid_kb(vertical, set()))
@@ -1198,9 +1210,16 @@ async def vid_cb(c: CallbackQuery, bot: Bot):
     if data:
         for k in chosen:
             try:
-                url = await (meta.post_facebook_video(data, st["caption"], vertical) if k == "fb"
-                             else meta.post_instagram_reel(data, st["caption"]))
-                ok.append(f"✅ <a href=\"{html.escape(url, quote=True)}\">{html.escape(targets[k])}</a>")
+                if k == "fb":
+                    # Facebook: bo'sh joy/shablonni qirqamiz, shakl (Reels yoki oddiy video) qirqilgandan keyin aniqlanadi
+                    fb_data, fb_vertical, note = await vcrop.autocrop(data)
+                    url = await meta.post_facebook_video(fb_data, _fb_video_caption(st["caption"]), fb_vertical)
+                    name = "📘 Facebook (Reels)" if fb_vertical else "📘 Facebook (video)"
+                    ok.append(f"✅ <a href=\"{html.escape(url, quote=True)}\">{name}</a>"
+                              + (f" · {note}" if note else ""))
+                else:
+                    url = await meta.post_instagram_reel(data, st["caption"])
+                    ok.append(f"✅ <a href=\"{html.escape(url, quote=True)}\">{html.escape(targets[k])}</a>")
                 done.append(k)
             except Exception as e:
                 fail.append(f"❌ {html.escape(targets[k])} — {html.escape(str(e))[:150]}")
