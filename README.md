@@ -128,3 +128,20 @@ Har o'zgarishdan keyin bot yangi ko'rinishni sizga yuboradi.
 pip install -r requirements.txt
 BOT_TOKEN=... ADMIN_IDS=... python main.py
 ```
+
+## 🔊 Yandex Stansiya — namoz vaqtida ovozli eslatma (faqat adminlar)
+Kodi: `yandex/` papkasida (`station.py` — Yandex bilan bog'lanish, `kolonka.py` — bot paneli va eslatuvchi).
+Namoz vaqti kirganda uydagi Yandex kolonka (Alisa) siz yozgan matnni ovoz chiqarib aytadi.
+Sozlash: `/kolonka` yoki «⚙️ Admin panel» → «🔊 Yandex kolonka».
+1. **🔑 Akkauntni ulash** — kompyuterda `passport.yandex.ru/profile` ni oching (kolonka ulangan akkaunt bilan),
+   F12 → Network → F5 → birinchi qator → Request Headers → `Cookie:` qiymatini nusxalab botga yuboring
+   (uzun bo'lsa .txt fayl qilib). Yoki «Get cookies.txt LOCALLY» kengaytmasi bilan yandex.ru cookie'larini
+   eksport qilib, .txt (yoki JSON) faylni yuboring. Bot xabarni o'chirib, cookie'ni faqat bazada saqlaydi.
+2. **📻 Kolonkani tanlash** — akkauntdagi kolonkalardan birini tanlang.
+3. Har bir namozni bosib **matnini** yozasiz (100 belgigacha), yoqasiz/o'chirasiz, «🔈 Kolonkada eshitish» bilan sinaysiz.
+   Standart: Bomdod, Peshin, Asr, Shom, Xufton yoqilgan; Quyosh o'chiq.
+4. **▶️ Yoqish** — shundan keyin har kuni jadvaldagi vaqtlarda (Peshin — `PESHIN_FIXED`) kolonka gapiradi.
+- Alisa o'zbek tilini bilmaydi: lotin matn avtomatik kirillga o'giriladi va rus ovozida o'qiladi
+  («🔤 Kirill» tugmasi bilan o'chirish mumkin; ruscha matn yozsangiz ham bo'ladi).
+- Bot Yandex akkauntida «Namoz eslatma (bot)» nomli stsenariy yaratadi — uni o'chirmang (o'chirilsa, qayta yaratadi).
+- Yandex rasmiy API bermaydi; cookie eskirsa yoki Yandex o'zgartirsa, yuborishda xato bo'lsa adminlarga xabar keladi — qaytadan ulang.

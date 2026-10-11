@@ -9,6 +9,7 @@ from aiogram.types import BotCommand
 from bot.config import BOT_TOKEN
 from bot.handlers import offer_site_article, router
 from bot import meta, site
+from yandex import kolonka
 from bot.jobs import notify_admins
 from bot.jobs import scheduler
 from bot.prayer_table import load_dir
@@ -24,6 +25,7 @@ async def main():
     dp = Dispatcher()
     dp.message.outer_middleware(SubscribeMiddleware())
     dp.callback_query.outer_middleware(SubscribeMiddleware())
+    dp.include_router(kolonka.router)  # 🔊 Yandex kolonka (matn kutayotganda ustun turadi)
     dp.include_router(router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Bosh menyu"),
@@ -35,12 +37,14 @@ async def main():
     task = asyncio.create_task(scheduler(bot))
     site_task = asyncio.create_task(site.watcher(bot, offer_site_article, notify_admins))
     ig_task = asyncio.create_task(meta.ig_refresher(lambda t: notify_admins(bot, t)))
+    ys_task = asyncio.create_task(kolonka.scheduler(bot))
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         task.cancel()
         site_task.cancel()
         ig_task.cancel()
+        ys_task.cancel()
 
 
 if __name__ == "__main__":
