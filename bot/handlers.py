@@ -41,11 +41,10 @@ B_PN = "🕌 Namoz vaqtida xabar"  # bot/namoz_xabar.py dagi B_PN bilan bir xil
 def menu(uid: int | None = None) -> ReplyKeyboardMarkup:
     rows = [
             [KeyboardButton(text=B_PRAYER)],
-            [KeyboardButton(text=B_PN)],
             [KeyboardButton(text=B_WEATHER), KeyboardButton(text=B_RATES)],
             [KeyboardButton(text=B_REGION), KeyboardButton(text=B_NOTIFY)] if MULTI
             else [KeyboardButton(text=B_NOTIFY)],
-            [KeyboardButton(text=B_CHANNEL), KeyboardButton(text=B_YS)],
+            [KeyboardButton(text=B_CHANNEL)],
     ]
     if uid in ADMIN_IDS:
         rows.append([KeyboardButton(text=B_ADMIN)])
@@ -89,9 +88,10 @@ def welcome_text(first_name: str) -> str:
         "• 🌤 Ob-havo — hozir va keyingi kunlar\n"
         "• 💵 Valyuta kursi — Markaziy bank kursi\n"
         f"• 🔔 Har kuni soat {SEND_AT} da ertangi kun ma'lumotlarini o'zi yuboradi\n"
-        "• 🕌 Har 5 vaqt namoz kirganda xabar (xohlasangiz azon audiosi bilan) — «Namoz vaqtida xabar»\n"
+        "• 🕌 Har 5 vaqt namoz kirganda xabar (xohlasangiz azon audiosi bilan)\n"
         "• 📢 Kanalingizga admin qilsangiz, har kuni namoz vaqtlari rasmini o'zi joylaydi\n"
-        "• 🔊 Yandex Stansiyangiz har namoz vaqtida siz yozgan gapni aytadi — «Kolonka eslatma»\n\n"
+        "• 🔊 Yandex Stansiyangiz har namoz vaqtida siz yozgan gapni aytadi\n"
+        "  (ikkalasi ham «🕌 Namoz vaqtlari» bo'limi ichida)\n\n"
         "Kerakli bo'limni tanlang 👇"
     )
 
@@ -161,7 +161,9 @@ def prayer_kb(which: str):
     kb.button(text="📅 Bugun" if which != "t" else "• Bugun •", callback_data="pr:t")
     kb.button(text="📅 Ertaga" if which != "n" else "• Ertaga •", callback_data="pr:n")
     kb.button(text="🖼 Rasm ko'rinishida", callback_data=f"pr:img:{which}")
-    kb.adjust(2, 1)
+    kb.button(text="🕌 Namoz vaqtida xabar", callback_data="pn:open")
+    kb.button(text="🔊 Kolonka eslatma", callback_data="ys:open")
+    kb.adjust(2, 1, 2)
     return kb.as_markup()
 
 

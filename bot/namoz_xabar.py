@@ -1,6 +1,6 @@
 """🕌 Namoz vaqtida Telegram xabari: 5 vaqt namoz kirganda foydalanuvchiga xabar (xohlasa — azon audiosi bilan).
 
-Foydalanuvchi o'zi yoqadi: menyudagi «🕌 Namoz vaqtida xabar» yoki /eslatma.
+Foydalanuvchi o'zi yoqadi: «🕌 Namoz vaqtlari» → «🕌 Namoz vaqtida xabar» yoki /eslatma.
 Vaqtlar botdagi jadvaldan (prayer_data/*.csv, /oylik) olinadi — kolonka va poster bilan bir xil.
 """
 import asyncio
@@ -96,6 +96,10 @@ async def cb(c: CallbackQuery):
     db.upsert_user(uid, c.from_user.full_name)
     u = _user(uid)
     act = c.data.split(":")[1]
+    if act == "open":  # «🕌 Namoz vaqtlari» ichidagi tugma
+        await c.answer()
+        text, kb = panel(u)
+        return await c.message.answer(text, reply_markup=kb)
     if act == "on":
         _set(uid, pn=0 if u["pn"] else 1)
         await c.answer("Yoqildi ✅" if not u["pn"] else "O'chirildi")
