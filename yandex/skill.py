@@ -24,6 +24,15 @@ SOUNDS = [s.strip() for s in os.getenv("AZAN_SOUNDS", "").split(",") if s.strip(
 BOMDOD_SOUNDS = [s.strip() for s in os.getenv("AZAN_BOMDOD_SOUNDS", "").split(",") if s.strip()]
 PATH = "/alice"
 
+HELP_WORDS = ("помощь", "помоги", "что ты умеешь", "умеешь", "yordam", "nima qila olasan")
+STOP_WORDS = ("хватит", "стоп", "выход", "выйти", "закрой", "to'xta", "chiqish")
+HELP_TEXT = ("Bu ko'nikma namoz azonini chaladi (qori Mishari Alafasy). Azonni eshitish uchun "
+             "«Алиса, запусти навык Намоз азони» deng. Namoz vaqtlarida avtomatik eslatma va azon uchun "
+             "Telegram'dagi Namanganliklar.uz namoz vaqtlari botida «Kolonka eslatma» bo'limini ulang.")
+HELP_TTS = ("Этот навык включает азан. Скажите: Алиса, запусти навык Намоз азони. "
+            "Чтобы азан звучал автоматически во время намаза, подключите колонку в Телеграм-боте "
+            "Наманганликлар уз, раздел Колонка эслатма.")
+
 
 def configured() -> bool:
     return bool(SKILL_ID and SKILL_NAME and SOUNDS)
@@ -46,6 +55,10 @@ def build_response(body: dict) -> dict:
     version = body.get("version", "1.0")
     if text.strip() == "ping":  # Yandex'ning tekshiruvi
         return {"version": version, "response": {"text": "pong", "end_session": True}}
+    if any(w in text for w in HELP_WORDS):  # moderatsiya talabi: «помощь», «что ты умеешь»
+        return {"version": version, "response": {"text": HELP_TEXT, "tts": HELP_TTS, "end_session": False}}
+    if any(w in text for w in STOP_WORDS):
+        return {"version": version, "response": {"text": "Xayr!", "end_session": True}}
     ids = BOMDOD_SOUNDS if (BOMDOD_SOUNDS and ("бомдод" in text or "bomdod" in text)) else SOUNDS
     if not ids:
         return {"version": version,
