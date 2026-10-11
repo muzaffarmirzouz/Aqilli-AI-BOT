@@ -184,7 +184,6 @@ async def cb(c: CallbackQuery, bot: Bot):
                      if b.callback_data == c.data), "")
         db.kv_set("ys_device", k)
         db.kv_set("ys_device_name", name)
-        db.kv_set("ys_scenario", "")
         await c.answer("Tanlandi")
         return await c.message.edit_text(f"✅ Kolonka tanlandi: <b>{html.escape(name)}</b>\n\n"
                                          "«🔈 Sinov» tugmasi bilan tekshirib ko'ring.",

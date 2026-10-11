@@ -296,43 +296,56 @@ class Client:
         }
 
     async def _find_scenario(self) -> str:
-        data = await self.req("GET", f"{IOT}/scenarios")
-        for sc in data.get("scenarios", []):
-            if sc.get("name") in (SCENARIO_NAME, OLD_SCENARIO_NAME):
-                return sc["id"]
+        """Avval yaratilgan stsenariyni nomidan qidiradi. Ro'yxat olinmasa (ba'zi akkauntlarda
+        Yandex 500 qaytaradi) — bo'sh qaytaradi, xato bermaydi."""
+        for url in (f"{IOT}/scenarios", f"{IOT_V3}/scenarios"):
+            try:
+                data = await self.req("GET", url)
+            except YandexError as e:
+                log.warning("stsenariylar ro'yxati %s: %s", url, e)
+                continue
+            for sc in data.get("scenarios", []) or []:
+                if sc.get("name") in (SCENARIO_NAME, OLD_SCENARIO_NAME):
+                    return sc["id"]
+            return ""
         return ""
 
-    async def _scenario(self, dev: str, text: str) -> tuple[str, bool]:
-        """(stsenariy id, hozir yaratildimi)."""
-        sid = db.kv_get("ys_scenario") or await self._find_scenario()
-        created = False
+    async def _create(self, dev: str, text: str) -> str:
+        try:
+            data = await self.req("POST", f"{IOT_V4}/scenarios", self._payload(dev, text))
+        except YandexError as e:
+            if "ALREADY_EXISTS" in str(e).upper() or "NAME" in str(e).upper():
+                sid = await self._find_scenario()
+                if sid:
+                    return sid
+            raise YandexError(f"Stsenariy yaratishda xato: {e}")
+        sid = data.get("scenario_id") or data.get("id") or ""
         if not sid:
-            try:
-                data = await self.req("POST", f"{IOT_V4}/scenarios", self._payload(dev, text))
-            except YandexError as e:
-                raise YandexError(f"Stsenariy yaratishda xato: {e}")
-            sid = data.get("scenario_id") or await self._find_scenario()
-            if not sid:
-                raise YandexError("Yandex'da stsenariy yaratib bo'lmadi")
-            created = True
-        db.kv_set("ys_scenario", sid)
-        return sid, created
+            raise YandexError(f"Stsenariy yaratildi, lekin Yandex uning raqamini qaytarmadi: {str(data)[:150]}")
+        return sid
 
     async def say(self, text: str, dev: str | None = None):
         dev = dev or device_id()
         if not dev:
             raise YandexError("Kolonka tanlanmagan")
         text = text.strip()[:MAX_PHRASE]
-        sid, created = await self._scenario(dev, text)
-        if not created:
+        sid = db.kv_get("ys_scenario") or ""
+        if sid:
             try:
                 await self.req("PUT", f"{IOT_V4}/scenarios/{sid}", self._payload(dev, text))
             except YandexError as e:
-                # stsenariy ilovada o'chirilgan bo'lsagina qaytadan yaratamiz (dublikat bo'lmasin)
-                if await self._find_scenario() == sid:
+                log.warning("stsenariy %s yangilanmadi (%s) — yangisi yaratiladi", sid, e)
+                sid = ""
+        if not sid:
+            sid = await self._find_scenario()
+            if sid:
+                try:
+                    await self.req("PUT", f"{IOT_V4}/scenarios/{sid}", self._payload(dev, text))
+                except YandexError as e:
                     raise YandexError(f"Matnni yangilashda xato: {e}")
-                db.kv_set("ys_scenario", "")
-                sid, _ = await self._scenario(dev, text)
+            else:
+                sid = await self._create(dev, text)
+            db.kv_set("ys_scenario", sid)
         try:
             await self.req("POST", f"{IOT}/scenarios/{sid}/actions")
         except YandexError as e:
