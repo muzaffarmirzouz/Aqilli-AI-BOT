@@ -34,6 +34,7 @@ MULTI = len(REGIONS) > 1  # bitta hudud bo'lsa, hudud tanlash ko'rsatilmaydi
 
 
 B_ADMIN = "⚙️ Admin panel"
+B_YS = "🔊 Kolonka eslatma"  # yandex/kolonka.py dagi B_YS bilan bir xil
 
 
 def menu(uid: int | None = None) -> ReplyKeyboardMarkup:
@@ -42,7 +43,7 @@ def menu(uid: int | None = None) -> ReplyKeyboardMarkup:
             [KeyboardButton(text=B_WEATHER), KeyboardButton(text=B_RATES)],
             [KeyboardButton(text=B_REGION), KeyboardButton(text=B_NOTIFY)] if MULTI
             else [KeyboardButton(text=B_NOTIFY)],
-            [KeyboardButton(text=B_CHANNEL)],
+            [KeyboardButton(text=B_CHANNEL), KeyboardButton(text=B_YS)],
     ]
     if uid in ADMIN_IDS:
         rows.append([KeyboardButton(text=B_ADMIN)])
@@ -86,7 +87,8 @@ def welcome_text(first_name: str) -> str:
         "• 🌤 Ob-havo — hozir va keyingi kunlar\n"
         "• 💵 Valyuta kursi — Markaziy bank kursi\n"
         f"• 🔔 Har kuni soat {SEND_AT} da ertangi kun ma'lumotlarini o'zi yuboradi\n"
-        "• 📢 Kanalingizga admin qilsangiz, har kuni namoz vaqtlari rasmini o'zi joylaydi\n\n"
+        "• 📢 Kanalingizga admin qilsangiz, har kuni namoz vaqtlari rasmini o'zi joylaydi\n"
+        "• 🔊 Yandex Stansiyangiz har namoz vaqtida siz yozgan gapni aytadi — «Kolonka eslatma»\n\n"
         "Kerakli bo'limni tanlang 👇"
     )
 
@@ -1312,8 +1314,10 @@ async def a_help(m: Message):
         "<b>Admin buyruqlari</b>\n"
         "⚙️ Admin panel — menyudagi tugma (rang, kanallar, statistika)\n"
         "📰 Yangilik rasmi — rasm yuboring, izohiga sarlavha yozing (urg'u: *so'z*, teg: [Tezkor])\n"
-        "/kolonka — 🔊 Yandex Stansiya: namoz vaqtida kolonka siz yozgan matnni aytadi\n"
+        "/kolonka — 🔊 Yandex Stansiya: namoz vaqtida kolonka aytadi (hamma foydalanuvchilar uchun, QR bilan ulanadi)\n"
         "/kolonka_tekshir — Yandex ulanishini batafsil tekshirish\n"
+        "/kolonka_stat — nechta foydalanuvchi kolonka ulagan\n"
+        "/kolonka_cookie — QR ishlamasa, cookie bilan ulash (zaxira)\n"
         "/stat — statistika\n"
         "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
         "/meta — Facebook va Instagram ulanishini tekshirish\n"
