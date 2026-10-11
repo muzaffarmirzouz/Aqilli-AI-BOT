@@ -210,21 +210,39 @@ class Client:
             raise YandexError(f"Yandex sessiyasini ochib bo'lmadi (javob: {r.status} {loc[:100]})")
 
     async def _csrf(self) -> str:
-        m = None
-        for url in (CSRF_PAGE, CSRF_PAGE + "?storage=1", "https://yandex.ru/quasar/iot"):
+        """Yozish (POST/PUT) uchun x-csrf-token. Bir nechta manbadan urinadi."""
+        tried = []
+        for url in (CSRF_PAGE, CSRF_PAGE + "?storage=1", "https://yandex.ru/iot",
+                    "https://quasar.yandex.ru/csrf_token", "https://frontend.vh.yandex.ru/csrf_token"):
             try:
-                async with self.s.get(url) as r:
-                    html = await r.text()
+                async with self.s.get(url, headers={"Accept": "text/html,application/json,*/*"}) as r:
+                    body = await r.text()
+                    status, final = r.status, str(r.url)
             except Exception as e:
-                log.warning("csrf %s: %s", url, e)
+                tried.append(f"{url.split('//')[1]} → {type(e).__name__}")
                 continue
-            m = re.search(r'"csrfToken2"\s*:\s*"([^"]+)"', html) or re.search(r'"csrfToken"\s*:\s*"([^"]+)"', html)
+            tok = None
+            m = re.search(r'"csrfToken2"\s*:\s*"([^"]+)"', body) or re.search(r'"csrfToken"\s*:\s*"([^"]+)"', body)
             if m:
-                break
-        if not m:
-            raise YandexError("Yandex CSRF tokenini olib bo'lmadi — akkauntni qaytadan ulang.")
-        self.csrf = m.group(1)
-        return self.csrf
+                tok = m.group(1)
+            elif url.endswith("/csrf_token") and status == 200:
+                try:
+                    j = json.loads(body)
+                    tok = j.get("token") or j.get("csrf_token") if isinstance(j, dict) else None
+                except ValueError:
+                    t = body.strip()
+                    if 10 < len(t) < 200 and " " not in t and "<" not in t:
+                        tok = t
+            if tok:
+                log.info("csrf: %s", url)
+                self.csrf = tok
+                return tok
+            note = "captcha" if "captcha" in (final + body[:3000]).lower() else f"{status}"
+            if final != url:
+                note += f", → {final.split('//')[-1][:60]}"
+            tried.append(f"{url.split('//')[1]} → {note}")
+        log.warning("csrf olinmadi: %s", tried)
+        raise YandexError("Yandex CSRF tokenini olib bo'lmadi. Tekshirilgan manzillar: " + "; ".join(tried))
 
     async def req(self, method: str, url: str, payload: dict | None = None) -> dict:
         for attempt in range(2):
