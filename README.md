@@ -134,7 +134,7 @@ Har bir foydalanuvchi o'z Yandex Stansiyasini (Alisa) ulaydi; namoz vaqti kirgan
 Kodi: `yandex/` papkasida — `store.py` (har foydalanuvchi sozlamalari, `ys_users` jadvali),
 `station.py` (Yandex: QR kirish, token, kolonkaga buyruq), `kolonka.py` (bot paneli va eslatuvchi).
 
-**Foydalanuvchi uchun:** menyuda «🔊 Kolonka eslatma» yoki `/kolonka`
+**Foydalanuvchi uchun:** «🕌 Namoz vaqtlari» → «🔊 Kolonka eslatma» yoki `/kolonka`
 1. Ogohlantirishni o'qib, **«✅ Roziman — QR kod bilan ulash»** → bot QR kod yuboradi.
    Boshqa qurilmadan — Yandex ilovasida QR'ni skanerlaydi; shu telefondan — «📱 Telefonda ochish». Kod 3 daqiqa amal qiladi.
 2. **📻 Kolonkani tanlash** → **🔈 Sinov** → **▶️ Yoqish**.
@@ -175,5 +175,5 @@ Boshqa foydalanuvchilar uchun ko'nikmani Dialogs'da moderatsiyaga yuborib, e'lon
 `bot/namoz_xabar.py` — har 5 vaqt namoz (bomdod, peshin, asr, shom, xufton) kirganda foydalanuvchiga xabar:
 «🌤 Asr namozi vaqti kirdi — 15:55 · Takbir: 16:05 · Keyingisi: Shom 17:44». Xohlasa — azon audiosi bilan (`assets/azon.mp3`,
 Telegram'ga bir marta yuklanadi, keyin file_id bilan yuboriladi).
-- Foydalanuvchi o'zi yoqadi: menyudagi «🕌 Namoz vaqtida xabar» yoki `/eslatma` (standart: o'chiq). Faqat majburiy obunachilarga.
+- Foydalanuvchi o'zi yoqadi: «🕌 Namoz vaqtlari» → «🕌 Namoz vaqtida xabar» yoki `/eslatma` (standart: o'chiq). Faqat majburiy obunachilarga.
 - Vaqtlar — botdagi jadvaldan (kolonka, poster va 21:00 xabari bilan bir xil). Admin: `/eslatma_stat`.
