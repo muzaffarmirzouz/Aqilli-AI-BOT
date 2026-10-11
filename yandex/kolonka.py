@@ -77,7 +77,8 @@ async def today_times() -> dict:
 # ---------------- panel ----------------
 async def panel_text() -> str:
     times = await today_times()
-    acc = "✅ ulangan" if ys.cookie() else "❌ ulanmagan"
+    acc = (f"✅ ulangan ({html.escape(ys.login_name())})" if ys.login_name() else "✅ ulangan") \
+        if ys.token() else "❌ ulanmagan"
     dev = db.kv_get("ys_device_name") or ("—" if not ys.device_id() else "tanlangan")
     lines = [
         "🔊 <b>Yandex Stansiya — namoz eslatmasi</b>",
@@ -143,8 +144,9 @@ COOKIE_HELP = (
     "4. Shu matnni menga yuboring. Juda uzun bo'lsa — .txt faylga saqlab, faylni yuboring.\n\n"
     "<b>Osonroq yo'l:</b> Chrome'ga «Get cookies.txt LOCALLY» kengaytmasini o'rnating, "
     "yandex.ru sahifasida uni bosib <b>Export</b> qiling va tushgan .txt faylni menga yuboring.\n\n"
-    "🔒 Cookie faqat botingiz bazasida saqlanadi, xabaringizni o'chirib qo'yaman. "
-    "Yandex parolingizni o'zgartirsangiz yoki akkauntdan chiqsangiz, qaytadan ulash kerak bo'ladi.\n\n"
+    "🔒 Cookie'dan bir marta Yandex tokeni olinadi va faqat token botingiz bazasida saqlanadi; "
+    "xabaringizni o'chirib qo'yaman. Token taxminan 1 yil ishlaydi. Yandex parolingizni o'zgartirsangiz "
+    "yoki «Barcha qurilmalardan chiqish» qilsangiz, qaytadan ulash kerak bo'ladi.\n\n"
     "Bekor qilish: /kolonka"
 )
 
@@ -158,7 +160,7 @@ async def cb(c: CallbackQuery, bot: Bot):
     uid = c.from_user.id
 
     if act == "on":
-        if not is_on() and not (ys.cookie() and ys.device_id()):
+        if not is_on() and not (ys.token() and ys.device_id()):
             return await c.answer("Avval akkauntni ulang va kolonkani tanlang", show_alert=True)
         db.kv_set("ys_on", "0" if is_on() else "1")
         await c.answer("Yoqildi" if is_on() else "O'chirildi")
@@ -246,9 +248,9 @@ async def speak(bot: Bot, uid: int, text: str):
         await bot.send_message(uid, f"❌ Xato: {html.escape(str(e))[:300]}")
 
 
-async def choose_device(bot: Bot, uid: int, raw_cookie: str | None = None) -> bool:
+async def choose_device(bot: Bot, uid: int) -> bool:
     try:
-        async with ys.Client(raw_cookie) as cl:
+        async with ys.Client() as cl:
             devs = await cl.speakers()
     except ys.YandexError as e:
         await bot.send_message(uid, f"❌ {html.escape(str(e))}")
@@ -289,10 +291,18 @@ async def receive(m: Message, bot: Bot):
             return await m.answer("⚠️ Bu matnda <code>Session_id</code> yo'q — Cookie to'liq nusxalanmagan "
                                   "yoki Yandex'ga kirilmagan. Qaytadan urinib ko'ring. Bekor qilish: /kolonka")
         await m.answer("⏳ Tekshirilmoqda…")
-        if await choose_device(bot, uid, raw):
-            ys.set_cookie(raw)
-            WAIT.pop(uid, None)
-            await m.answer("✅ Yandex akkaunti ulandi. Endi kolonkani tanlang.")
+        try:
+            x_token, login = await ys.cookies_to_token(raw)
+        except ys.YandexError as e:
+            return await m.answer(f"❌ {html.escape(str(e))}\nBekor qilish: /kolonka")
+        except Exception as e:
+            log.exception("x-token")
+            return await m.answer(f"❌ Yandex bilan bog'lanib bo'lmadi: {html.escape(str(e))[:300]}")
+        ys.set_token(x_token, login)
+        WAIT.pop(uid, None)
+        await m.answer(f"✅ Yandex akkaunti ulandi{': <b>' + html.escape(login) + '</b>' if login else ''}.\n"
+                       "Kolonkalar ro'yxati olinmoqda…")
+        await choose_device(bot, uid)
         return
 
     if state.startswith("text:"):
@@ -322,7 +332,7 @@ async def scheduler(bot: Bot):
     while True:
         wait = 30.0
         try:
-            if is_on() and ys.cookie() and ys.device_id():
+            if is_on() and ys.token() and ys.device_id():
                 n = now()
                 today = n.date()
                 times = await today_times()

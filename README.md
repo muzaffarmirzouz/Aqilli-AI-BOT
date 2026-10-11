@@ -136,12 +136,13 @@ Sozlash: `/kolonka` yoki «⚙️ Admin panel» → «🔊 Yandex kolonka».
 1. **🔑 Akkauntni ulash** — kompyuterda `passport.yandex.ru/profile` ni oching (kolonka ulangan akkaunt bilan),
    F12 → Network → F5 → birinchi qator → Request Headers → `Cookie:` qiymatini nusxalab botga yuboring
    (uzun bo'lsa .txt fayl qilib). Yoki «Get cookies.txt LOCALLY» kengaytmasi bilan yandex.ru cookie'larini
-   eksport qilib, .txt (yoki JSON) faylni yuboring. Bot xabarni o'chirib, cookie'ni faqat bazada saqlaydi.
+   eksport qilib, .txt (yoki JSON) faylni yuboring. Bot xabarni o'chiradi, cookie'dan bir marta Yandex tokenini
+   (x-token, ~1 yil) oladi va bazada faqat tokenni saqlaydi; har ulanishda token bilan yangi sessiya ochiladi.
 2. **📻 Kolonkani tanlash** — akkauntdagi kolonkalardan birini tanlang.
 3. Har bir namozni bosib **matnini** yozasiz (100 belgigacha), yoqasiz/o'chirasiz, «🔈 Kolonkada eshitish» bilan sinaysiz.
    Standart: Bomdod, Peshin, Asr, Shom, Xufton yoqilgan; Quyosh o'chiq.
 4. **▶️ Yoqish** — shundan keyin har kuni jadvaldagi vaqtlarda (Peshin — `PESHIN_FIXED`) kolonka gapiradi.
 - Alisa o'zbek tilini bilmaydi: lotin matn avtomatik kirillga o'giriladi va rus ovozida o'qiladi
   («🔤 Kirill» tugmasi bilan o'chirish mumkin; ruscha matn yozsangiz ham bo'ladi).
-- Bot Yandex akkauntida «Namoz eslatma (bot)» nomli stsenariy yaratadi — uni o'chirmang (o'chirilsa, qayta yaratadi).
-- Yandex rasmiy API bermaydi; cookie eskirsa yoki Yandex o'zgartirsa, yuborishda xato bo'lsa adminlarga xabar keladi — qaytadan ulang.
+- Bot Yandex akkauntida «Namoz eslatma bot» nomli stsenariy yaratadi — uni o'chirmang (o'chirilsa, qayta yaratadi).
+- Yandex rasmiy API bermaydi; token bekor bo'lsa yoki Yandex o'zgartirsa, yuborishda xato bo'lsa adminlarga xabar keladi — qaytadan ulang.

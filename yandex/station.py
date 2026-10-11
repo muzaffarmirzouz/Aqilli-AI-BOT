@@ -6,7 +6,8 @@ ham shu usulda ishlaydi):
   1) akkauntda bitta yordamchi stsenariy yaratiladi ("Namoz eslatma bot");
   2) gapirish kerak bo'lganda stsenariydagi matn yangilanadi va stsenariy ishga tushiriladi —
      kolonka matnni ovoz chiqarib aytadi (quasar tts).
-Kirish: brauzerdan olingan yandex.ru cookie'lari (Session_id va boshqalar).
+Kirish: brauzer cookie'lari bir marta Yandex x-token'iga almashtiriladi (bazada faqat token saqlanadi),
+har ulanishda token bilan yangi sessiya ochiladi.
 """
 import json
 import logging
@@ -35,38 +36,47 @@ class YandexError(Exception):
 
 
 # ---------------- sozlamalar (bazada) ----------------
-def cookie() -> str:
-    return db.kv_get("ys_cookie") or ""
+def token() -> str:
+    """Yandex x-token (cookie'dan bir marta olinadi, ~1 yil amal qiladi)."""
+    return db.kv_get("ys_xtoken") or ""
 
 
-def set_cookie(raw: str):
-    db.kv_set("ys_cookie", clean_cookie(raw))
-    db.kv_set("ys_scenario", "")  # yangi akkaunt bo'lishi mumkin
+def set_token(x_token: str, login: str = ""):
+    db.kv_set("ys_xtoken", x_token)
+    db.kv_set("ys_login", login)
+    db.kv_set("ys_cookie", "")     # eski versiyadan qolgan cookie kerak emas
+    db.kv_set("ys_scenario", "")   # yangi akkaunt bo'lishi mumkin
+
+
+def login_name() -> str:
+    return db.kv_get("ys_login") or ""
 
 
 def device_id() -> str:
     return db.kv_get("ys_device") or ""
 
 
-def _yandex_domain(d: str) -> bool:
-    d = d.lstrip(".").lower()
-    return d == "yandex.ru" or d.endswith(".yandex.ru")
+def _domain(d: str) -> str:
+    """'.passport.yandex.uz' -> 'yandex.uz' (Yandex domeni bo'lmasa — '')."""
+    m = re.search(r"(yandex\.[a-z]{2,3})$", d.lstrip(".").lower())
+    return m.group(1) if m else ""
 
 
-def clean_cookie(raw: str) -> str:
-    """Cookie'ni 'nom=qiymat; ...' ko'rinishiga keltiradi. Qabul qiladi:
+def parse_cookies(raw: str) -> tuple[str, str]:
+    """(cookie qatori, passport host). Qabul qiladi:
     - brauzer Headers'idan nusxa olingan 'Cookie: ...' qatori;
     - "Get cookies.txt LOCALLY" kabi kengaytmalarning Netscape (cookies.txt) fayli;
     - JSON eksport ([{"name","value","domain"}, ...])."""
-    s = raw.strip().lstrip("﻿")
-    pairs: dict[str, str] = {}
+    s = raw.strip().lstrip("\ufeff")
+    by_dom: dict[str, dict[str, str]] = {}
     if s.startswith("[") or s.startswith("{"):
         try:
             data = json.loads(s)
             items = data if isinstance(data, list) else data.get("cookies", [])
             for c in items:
-                if c.get("name") and _yandex_domain(str(c.get("domain", "yandex.ru"))):
-                    pairs[c["name"]] = str(c.get("value", ""))
+                dom = _domain(str(c.get("domain", "")))
+                if c.get("name") and dom:
+                    by_dom.setdefault(dom, {})[c["name"]] = str(c.get("value", ""))
         except ValueError:
             pass
     elif "\t" in s:
@@ -77,12 +87,47 @@ def clean_cookie(raw: str) -> str:
             elif not line or line.startswith("#"):
                 continue
             f = line.split("\t")
-            if len(f) >= 7 and _yandex_domain(f[0]):
-                pairs[f[5]] = f[6]
-    if pairs:
-        return "; ".join(f"{k}={v}" for k, v in pairs.items())
+            if len(f) >= 7 and _domain(f[0]):
+                by_dom.setdefault(_domain(f[0]), {})[f[5]] = f[6]
+    if by_dom:
+        # Session_id bor domenni tanlaymiz, yandex.ru ustun
+        doms = sorted(by_dom, key=lambda d: ("Session_id" not in by_dom[d], d != "yandex.ru"))
+        dom = doms[0]
+        return "; ".join(f"{k}={v}" for k, v in by_dom[dom].items()), f"passport.{dom}"
     s = re.sub(r"^(cookie|Cookie)\s*:\s*", "", s)
-    return " ".join(s.split())
+    return " ".join(s.split()), "passport.yandex.ru"
+
+
+# Yandex mobil ilovasining ochiq client_id/secret'i (Home Assistant YandexStation ham shuni ishlatadi)
+_CLIENT_ID = "c0ebe342af7d48fbbbfcf2d2eedb8f9e"
+_CLIENT_SECRET = "ad0a908f0aa341a182a37ecd75bc319e"
+_MP = "https://mobileproxy.passport.yandex.net/1/bundle"
+
+
+async def cookies_to_token(raw: str) -> tuple[str, str]:
+    """Brauzer cookie'laridan x-token oladi. Natija: (x_token, login)."""
+    cookies, host = parse_cookies(raw)
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as s:
+        async with s.post(f"{_MP}/oauth/token_by_sessionid",
+                          data={"client_id": _CLIENT_ID, "client_secret": _CLIENT_SECRET},
+                          headers={"Ya-Client-Host": host, "Ya-Client-Cookie": cookies}) as r:
+            text = await r.text()
+        try:
+            x_token = json.loads(text).get("access_token")
+        except ValueError:
+            x_token = None
+        if not x_token:
+            raise YandexError("Cookie'dan Yandex'ga kirib bo'lmadi — cookie eskirgan yoki to'liq emas. "
+                              f"Yandex'dan qaytadan chiqib-kirib, yangi cookie yuboring. ({text[:150]})")
+        login = ""
+        try:
+            async with s.get(f"{_MP}/account/short_info/?avatar_size=islands-300",
+                             headers={"Authorization": f"OAuth {x_token}"}) as r:
+                info = json.loads(await r.text())
+                login = info.get("display_login") or info.get("display_name") or ""
+        except Exception:
+            pass
+        return x_token, login
 
 
 # ---------------- Lotin -> kirill (ruscha talaffuz uchun) ----------------
@@ -122,21 +167,47 @@ def to_cyrillic(text: str) -> str:
 
 # ---------------- HTTP ----------------
 class Client:
-    def __init__(self, raw_cookie: str | None = None):
-        self.cookie = clean_cookie(raw_cookie) if raw_cookie else cookie()
+    def __init__(self, x_token: str | None = None):
+        self.x_token = x_token or token()
         self.csrf = ""
 
     async def __aenter__(self):
-        if not self.cookie:
+        if not self.x_token:
             raise YandexError("Yandex akkaunti ulanmagan")
         self.s = aiohttp.ClientSession(
-            headers={"Cookie": self.cookie, "User-Agent": UA},
+            headers={"User-Agent": UA},
+            cookie_jar=aiohttp.CookieJar(),
             timeout=aiohttp.ClientTimeout(total=20),
         )
+        try:
+            await self._login()
+        except BaseException:
+            await self.s.close()
+            raise
         return self
 
     async def __aexit__(self, *a):
         await self.s.close()
+
+    async def _login(self):
+        """x-token bilan yangi sessiya cookie'larini oladi (Home Assistant usuli)."""
+        async with self.s.post(f"{_MP}/auth/x_token/",
+                               data={"type": "x-token", "retpath": "https://www.yandex.ru"},
+                               headers={"Ya-Consumer-Authorization": f"OAuth {self.x_token}"}) as r:
+            text = await r.text()
+        try:
+            resp = json.loads(text)
+        except ValueError:
+            resp = {}
+        if resp.get("status") != "ok":
+            raise YandexError("Yandex token eskirgan yoki bekor qilingan — akkauntni qaytadan ulang. "
+                              f"({text[:150]})")
+        host = resp.get("passport_host") or "https://passport.yandex.ru"
+        async with self.s.get(f"{host}/auth/session/", params={"track_id": resp["track_id"]},
+                              allow_redirects=False) as r:
+            loc = r.headers.get("Location", "")
+        if "/auth/finish" not in loc:
+            raise YandexError(f"Yandex sessiyasini ochib bo'lmadi (javob: {r.status} {loc[:100]})")
 
     async def _csrf(self) -> str:
         m = None
@@ -151,8 +222,7 @@ class Client:
             if m:
                 break
         if not m:
-            raise YandexError("Yandex'ga kirib bo'lmadi — cookie eskirgan yoki noto'g'ri. "
-                              "Qaytadan ulang.")
+            raise YandexError("Yandex CSRF tokenini olib bo'lmadi — akkauntni qaytadan ulang.")
         self.csrf = m.group(1)
         return self.csrf
 
@@ -172,10 +242,10 @@ class Client:
                     data = {}
                 if r.status >= 400 or (data and data.get("status") not in (None, "ok")):
                     if r.status == 401:
-                        raise YandexError("Yandex akkauntiga kirish rad etildi — cookie eskirgan. Qaytadan ulang.")
+                        raise YandexError("Yandex akkauntiga kirish rad etildi — akkauntni qaytadan ulang.")
                     raise YandexError(f"Yandex javobi {r.status}: {text[:200]}")
                 return data
-        raise YandexError("Yandex ruxsat bermadi (403). Cookie'ni yangilang.")
+        raise YandexError("Yandex ruxsat bermadi (403). Akkauntni qaytadan ulang.")
 
     # ---------- qurilmalar ----------
     async def speakers(self) -> list[dict]:
