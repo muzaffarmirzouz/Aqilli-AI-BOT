@@ -129,20 +129,26 @@ pip install -r requirements.txt
 BOT_TOKEN=... ADMIN_IDS=... python main.py
 ```
 
-## 🔊 Yandex Stansiya — namoz vaqtida ovozli eslatma (faqat adminlar)
-Kodi: `yandex/` papkasida (`station.py` — Yandex bilan bog'lanish, `kolonka.py` — bot paneli va eslatuvchi).
-Namoz vaqti kirganda uydagi Yandex kolonka (Alisa) siz yozgan matnni ovoz chiqarib aytadi.
-Sozlash: `/kolonka` yoki «⚙️ Admin panel» → «🔊 Yandex kolonka».
-1. **🔑 Akkauntni ulash** — kompyuterda `passport.yandex.ru/profile` ni oching (kolonka ulangan akkaunt bilan),
-   F12 → Network → F5 → birinchi qator → Request Headers → `Cookie:` qiymatini nusxalab botga yuboring
-   (uzun bo'lsa .txt fayl qilib). Yoki «Get cookies.txt LOCALLY» kengaytmasi bilan yandex.ru cookie'larini
-   eksport qilib, .txt (yoki JSON) faylni yuboring. Bot xabarni o'chiradi, cookie'dan bir marta Yandex tokenini
-   (x-token, ~1 yil) oladi va bazada faqat tokenni saqlaydi; har ulanishda token bilan yangi sessiya ochiladi.
-2. **📻 Kolonkani tanlash** — akkauntdagi kolonkalardan birini tanlang.
-3. Har bir namozni bosib **matnini** yozasiz (100 belgigacha), yoqasiz/o'chirasiz, «🔈 Kolonkada eshitish» bilan sinaysiz.
-   Standart: Bomdod, Peshin, Asr, Shom, Xufton yoqilgan; Quyosh o'chiq.
-4. **▶️ Yoqish** — shundan keyin har kuni jadvaldagi vaqtlarda (Peshin — `PESHIN_FIXED`) kolonka gapiradi.
-- Alisa o'zbek tilini bilmaydi: lotin matn avtomatik kirillga o'giriladi va rus ovozida o'qiladi
-  («🔤 Kirill» tugmasi bilan o'chirish mumkin; ruscha matn yozsangiz ham bo'ladi).
-- Bot Yandex akkauntida «Namoz eslatma bot» nomli stsenariy yaratadi — uni o'chirmang (o'chirilsa, qayta yaratadi).
-- Yandex rasmiy API bermaydi; token bekor bo'lsa yoki Yandex o'zgartirsa, yuborishda xato bo'lsa adminlarga xabar keladi — qaytadan ulang.
+## 🔊 Kolonka eslatma — Yandex Stansiya namoz vaqtida gapiradi (hamma foydalanuvchilar uchun)
+Har bir foydalanuvchi o'z Yandex Stansiyasini (Alisa) ulaydi; namoz vaqti kirganda kolonka u yozgan gapni aytadi.
+Kodi: `yandex/` papkasida — `store.py` (har foydalanuvchi sozlamalari, `ys_users` jadvali),
+`station.py` (Yandex: QR kirish, token, kolonkaga buyruq), `kolonka.py` (bot paneli va eslatuvchi).
+
+**Foydalanuvchi uchun:** menyuda «🔊 Kolonka eslatma» yoki `/kolonka`
+1. Ogohlantirishni o'qib, **«✅ Roziman — QR kod bilan ulash»** → bot QR kod yuboradi.
+   Boshqa qurilmadan — Yandex ilovasida QR'ni skanerlaydi; shu telefondan — «📱 Telefonda ochish». Kod 3 daqiqa amal qiladi.
+2. **📻 Kolonkani tanlash** → **🔈 Sinov** → **▶️ Yoqish**.
+3. Har namozni bosib matnini yozadi (100 belgigacha), yoqadi/o'chiradi.
+4. **🔌 Uzish** — token va barcha sozlamalar botdan o'chiriladi. Yandex tomonida ham: id.yandex.ru → «Kirish va qurilmalar».
+- O'zbekcha talaffuz uchun «Дом с Алисой»da kolonka ⚙️ → «Assistent tili» → «O‘zbekcha + Ruscha». «🔤 Kirill» odatda o'chiq turadi
+  (rus tilidagi kolonkalar uchun yoqiladi — lotin matnni rus ovozi o'qiy oladigan kirillga o'giradi).
+
+**Qanday ishlaydi:** QR orqali olingan Yandex x-token bazada saqlanadi (parol emas). Har foydalanuvchiga doimiy sessiya
+ochiladi; buyruq kolonkaga to'g'ridan-to'g'ri (`phrase_action`/`tts`) yuboriladi, bo'lmasa Yandex stsenariysi orqali.
+Namoz vaqtida barcha yoqilgan kolonkalarga parallel (15 tadan) yuboriladi. Token bekor bo'lsa — eslatmalar o'chadi va
+foydalanuvchiga xabar boradi; boshqa xato bo'lsa — kuniga ko'pi bilan bitta xabar.
+Yandex rasmiy API bermaydi (Home Assistant YandexStation usuli) — Yandex o'zgartirsa, vaqtincha ishlamasligi mumkin.
+
+**Admin:** `/kolonka_stat` — nechta ulangan/yoqilgan; `/kolonka_tekshir` — o'z ulanishini batafsil tekshirish;
+`/kolonka_cookie` — QR ishlamasa, brauzer cookie'si bilan ulash (zaxira).
+Eski (bitta admin) sozlamalari birinchi ishga tushishda avtomatik admin profiliga ko'chiriladi.

@@ -3,3 +3,4 @@ aiohttp>=3.9,<4
 Pillow>=10.4
 tzdata
 telethon>=1.36,<2
+qrcode>=7.4
