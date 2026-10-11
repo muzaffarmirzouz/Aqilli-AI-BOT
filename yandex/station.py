@@ -245,37 +245,43 @@ class Client:
         log.warning("csrf olinmadi: %s", tried)
         raise YandexError("Yandex CSRF tokenini olib bo'lmadi. Tekshirilgan manzillar: " + "; ".join(tried))
 
-    async def req(self, method: str, url: str, payload: dict | None = None) -> dict:
-        """JSON so'rov. 401/403 da CSRF yangilanadi, 5xx da 3 martagacha qayta urinadi."""
-        last = ""
-        for attempt in range(4):
+    async def req(self, method: str, url: str, payload: dict | None = None,
+                  tries: int = 4, timeout: float | None = None) -> dict:
+        """JSON so'rov. 401/403 da bir marta qayta kirib/CSRF yangilab urinadi,
+        5xx yoki tarmoq xatosida jami `tries` martagacha urinadi."""
+        extra = {"timeout": aiohttp.ClientTimeout(total=timeout)} if timeout else {}
+        auth_retry, fails, last = True, 0, ""
+        while True:
             headers = {}
             if method != "GET":
                 headers["x-csrf-token"] = self.csrf or await self._csrf()
             try:
-                async with self.s.request(method, url, json=payload, headers=headers) as r:
+                async with self.s.request(method, url, json=payload, headers=headers, **extra) as r:
                     status, text = r.status, await r.text()
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                status, text = 0, f"{type(e).__name__}: {e}"
-            if status in (401, 403) and attempt == 0:
+                status, text = 0, f"{type(e).__name__} {e}".strip()
+            if status in (401, 403) and auth_retry:
+                auth_retry = False
                 if status == 401:
                     await self._login()
                 await self._csrf()
                 continue
+            if status == 0 or status >= 500:
+                fails += 1
+                last = f"{status or 'tarmoq/timeout'}: {text[:200]}"
+                if fails >= tries:
+                    raise YandexError(f"Yandex javobi {last}")
+                await asyncio.sleep(1.5 * fails)
+                continue
             try:
-                data = json.loads(text) if text and status else {}
+                data = json.loads(text) if text else {}
             except ValueError:
                 data = {}
-            if status == 0 or status >= 500:
-                last = f"{status or 'tarmoq'}: {text[:200]}"
-                await asyncio.sleep(1.5 * (attempt + 1))
-                continue
             if status >= 400 or (data and data.get("status") not in (None, "ok")):
                 if status == 401:
                     raise YandexError("Yandex akkauntiga kirish rad etildi — akkauntni qaytadan ulang.")
                 raise YandexError(f"Yandex javobi {status}: {text[:200]}")
             return data
-        raise YandexError(f"Yandex javobi {last}" if last else "Yandex ruxsat bermadi (403). Akkauntni qaytadan ulang.")
 
     async def diagnose(self) -> list[str]:
         """Batafsil tekshiruv (adminga ko'rsatish uchun)."""
@@ -292,6 +298,9 @@ class Client:
                     out.append(f"  • {d.get('name')} | {str(d.get('type', '')).replace('devices.types.', '')}"
                                f" | platform={qi.get('platform', '—')}"
                                f"{' | ulashilgan' if d.get('sharing_info') else ''} | id={d.get('id', '')[:8]}…")
+                    for cap in d.get("capabilities", []) or []:
+                        inst = (cap.get("parameters") or {}).get("instance") or (cap.get("state") or {}).get("instance") or ""
+                        out.append(f"      ↳ {str(cap.get('type', '')).replace('devices.capabilities.', '')} {inst}")
             if st != 200:
                 out.append(f"  javob: {body[:200]}")
         except Exception as e:
@@ -310,7 +319,9 @@ class Client:
             out.append("✅ CSRF token olindi")
         except YandexError as e:
             out.append(f"❌ {e}")
-        out.append(f"Saqlangan stsenariy: {db.kv_get('ys_scenario') or '—'} · kolonka id: {device_id()[:8] or '—'}…")
+        out.append(f"Saqlangan stsenariy: {db.kv_get('ys_scenario') or '—'} · usul: {db.kv_get('ys_mode') or 'aniqlanmagan'}"
+                   f" · kolonka id: {device_id()[:8] or '—'}…")
+        db.kv_set("ys_mode", "")  # tekshiruvdan keyin keyingi Sinov hamma usullarni qaytadan sinaydi
         return out
 
     # ---------- qurilmalar ----------
@@ -366,7 +377,7 @@ class Client:
         Yandex 500 qaytaradi) — bo'sh qaytaradi, xato bermaydi."""
         for url in (f"{IOT}/scenarios", f"{IOT_V3}/scenarios"):
             try:
-                data = await self.req("GET", url)
+                data = await self.req("GET", url, tries=1, timeout=8)
             except YandexError as e:
                 log.warning("stsenariylar ro'yxati %s: %s", url, e)
                 continue
@@ -390,11 +401,40 @@ class Client:
             raise YandexError(f"Stsenariy yaratildi, lekin Yandex uning raqamini qaytarmadi: {str(data)[:150]}")
         return sid
 
+    async def _direct(self, dev: str, text: str) -> bool:
+        """Stsenariysiz: kolonkaga to'g'ridan-to'g'ri buyruq. Ishlagan usul eslab qolinadi."""
+        variants = {
+            "phrase": {"type": "devices.capabilities.quasar.server_action",
+                       "state": {"instance": "phrase_action", "value": text}},
+            "tts": {"type": "devices.capabilities.quasar",
+                    "state": {"instance": "tts", "value": {"text": text}}},
+        }
+        mode = db.kv_get("ys_mode") or ""
+        if mode == "scenario":
+            return False
+        order = [mode] if mode in variants else list(variants)
+        for name in order:
+            try:
+                await self.req("POST", f"{IOT}/devices/{dev}/actions", {"actions": [variants[name]]},
+                               tries=2, timeout=10)
+                db.kv_set("ys_mode", name)
+                log.info("kolonka: to'g'ridan-to'g'ri (%s) ishladi", name)
+                return True
+            except YandexError as e:
+                log.warning("to'g'ridan-to'g'ri %s: %s", name, e)
+        if not mode:
+            db.kv_set("ys_mode", "scenario")  # bu akkauntda faqat stsenariy orqali
+        elif mode in variants:
+            db.kv_set("ys_mode", "")  # ilgari ishlagan usul buzildi — keyingi safar hammasini sinaymiz
+        return False
+
     async def say(self, text: str, dev: str | None = None):
         dev = dev or device_id()
         if not dev:
             raise YandexError("Kolonka tanlanmagan")
         text = text.strip()[:MAX_PHRASE]
+        if await self._direct(dev, text):
+            return
         sid = db.kv_get("ys_scenario") or ""
         if sid:
             try:
