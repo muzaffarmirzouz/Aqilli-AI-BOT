@@ -170,3 +170,10 @@ Sozlash (bir marta):
    `AZAN_SOUNDS` (`id1,id2` — chalinish tartibida), ixtiyoriy `AZAN_BOMDOD_SOUNDS`.
 5. Kolonkaga «Алиса, запусти навык намоз азони» deb sinang, keyin botda 🕌 Azon → «🔈 Kolonkada eshitish».
 Boshqa foydalanuvchilar uchun ko'nikmani Dialogs'da moderatsiyaga yuborib, e'lon qilish kerak.
+
+## 🕌 Namoz vaqtida xabar (Telegram)
+`bot/namoz_xabar.py` — har 5 vaqt namoz (bomdod, peshin, asr, shom, xufton) kirganda foydalanuvchiga xabar:
+«🌤 Asr namozi vaqti kirdi — 15:55 · Takbir: 16:05 · Keyingisi: Shom 17:44». Xohlasa — azon audiosi bilan (`assets/azon.mp3`,
+Telegram'ga bir marta yuklanadi, keyin file_id bilan yuboriladi).
+- Foydalanuvchi o'zi yoqadi: menyudagi «🕌 Namoz vaqtida xabar» yoki `/eslatma` (standart: o'chiq). Faqat majburiy obunachilarga.
+- Vaqtlar — botdagi jadvaldan (kolonka, poster va 21:00 xabari bilan bir xil). Admin: `/eslatma_stat`.
