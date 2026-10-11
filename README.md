@@ -155,3 +155,18 @@ Yandex rasmiy API bermaydi (Home Assistant YandexStation usuli) — Yandex o'zga
 **Admin:** `/kolonka_stat` — nechta ulangan/yoqilgan; `/kolonka_tekshir` — o'z ulanishini batafsil tekshirish;
 `/kolonka_cookie` — QR ishlamasa, brauzer cookie'si bilan ulash (zaxira).
 Eski (bitta admin) sozlamalari birinchi ishga tushishda avtomatik admin profiliga ko'chiriladi.
+
+### 🕌 «Namoz azoni» ko'nikmasi — Yandex Plus'siz azon
+`yandex/skill.py` — Alisa ko'nikmasi webhook'i (bot bilan bir jarayonda, `https://<railway-domen>/alice`).
+Azon yoqilgan foydalanuvchilarda kolonka matnni aytgach, bot Alisa'ga «запусти навык <nom>» yuboradi va ko'nikma
+o'ziga yuklangan azon audiolarini chaladi. Bitta audio 120 soniyagacha — uzun azon bo'laklarga bo'linib, ketma-ket chalinadi.
+
+Sozlash (bir marta):
+1. Railway → servis → **Settings → Networking → Generate Domain** (domen olinadi, `PORT` o'zgaruvchisini Railway o'zi beradi).
+2. **dialogs.yandex.ru/developer** → «Создать диалог» → «Навык». Nomi va faollashtirish nomi: masalan «Намоз азони»;
+   Backend → **Webhook URL**: `https://<railway-domen>/alice`; «Приватный навык» yoqilsin (avval o'zingiz uchun).
+3. Ko'nikma → **«Ресурсы» → «Звуки»** → azon bo'laklarini yuklang (`azon_1.mp3`, `azon_2.mp3`) va har birining ID'sini oling.
+4. Railway → **Variables**: `ALICE_SKILL_ID` (ko'nikma ID'si), `ALICE_SKILL_NAME` (faollashtirish nomi, kichik harfda),
+   `AZAN_SOUNDS` (`id1,id2` — chalinish tartibida), ixtiyoriy `AZAN_BOMDOD_SOUNDS`.
+5. Kolonkaga «Алиса, запусти навык намоз азони» deb sinang, keyin botda 🕌 Azon → «🔈 Kolonkada eshitish».
+Boshqa foydalanuvchilar uchun ko'nikmani Dialogs'da moderatsiyaga yuborib, e'lon qilish kerak.
