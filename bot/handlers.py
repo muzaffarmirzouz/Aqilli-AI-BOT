@@ -646,6 +646,7 @@ def admin_kb():
     kb.button(text="📢 Barcha kanallar", callback_data="adm:chats")
     kb.button(text="📊 Statistika", callback_data="adm:stat")
     kb.button(text="📰 Yangilik rasmi", callback_data="adm:news")
+    kb.button(text="🔊 Yandex kolonka", callback_data="adm:ys")
     kb.adjust(2)
     return kb.as_markup()
 
@@ -695,6 +696,10 @@ async def a_panel_cb(c: CallbackQuery, bot: Bot):
             "• Urg'u (sariq rang): <code>*so'z*</code>\n"
             "• Teg (qizil yorliq): <code>[Tezkor] Sarlavha</code>\n"
             "• Tayyor rasm ostidagi tugmalar: format (1:1 / 4:5), matnni o'zgartirish, kanalga yuborish.")
+    elif act == "ys":
+        from . import kolonka
+        await c.answer()
+        return await kolonka.show_panel(bot, c.from_user.id)
     elif act == "stat":
         st = db.stats()
         await c.message.answer(f"👥 Foydalanuvchilar: {st['users']} (faol {st['active']}, kechki xabar {st['notify']})\n"
@@ -1307,6 +1312,7 @@ async def a_help(m: Message):
         "<b>Admin buyruqlari</b>\n"
         "⚙️ Admin panel — menyudagi tugma (rang, kanallar, statistika)\n"
         "📰 Yangilik rasmi — rasm yuboring, izohiga sarlavha yozing (urg'u: *so'z*, teg: [Tezkor])\n"
+        "/kolonka — 🔊 Yandex Stansiya: namoz vaqtida kolonka siz yozgan matnni aytadi\n"
         "/stat — statistika\n"
         "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
         "/meta — Facebook va Instagram ulanishini tekshirish\n"
