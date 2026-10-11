@@ -47,6 +47,7 @@ def set_token(x_token: str, login: str = ""):
     db.kv_set("ys_login", login)
     db.kv_set("ys_cookie", "")     # eski versiyadan qolgan cookie kerak emas
     db.kv_set("ys_scenario", "")   # yangi akkaunt bo'lishi mumkin
+    db.kv_set("ys_mode", "")
 
 
 def login_name() -> str:
@@ -213,10 +214,16 @@ class Client:
     async def _csrf(self) -> str:
         """Yozish (POST/PUT) uchun x-csrf-token. Bir nechta manbadan urinadi."""
         tried = []
-        for url in (CSRF_PAGE, CSRF_PAGE + "?storage=1", "https://yandex.ru/iot",
-                    "https://quasar.yandex.ru/csrf_token", "https://frontend.vh.yandex.ru/csrf_token"):
+        urls = [CSRF_PAGE, CSRF_PAGE + "?storage=1", "https://yandex.ru/iot",
+                "https://quasar.yandex.ru/csrf_token", "https://frontend.vh.yandex.ru/csrf_token"]
+        good = db.kv_get("ys_csrf_url")
+        if good in urls:  # oxirgi marta ishlagan manzil birinchi
+            urls.remove(good)
+            urls.insert(0, good)
+        for url in urls:
             try:
-                async with self.s.get(url, headers={"Accept": "text/html,application/json,*/*"}) as r:
+                async with self.s.get(url, headers={"Accept": "text/html,application/json,*/*"},
+                                      timeout=aiohttp.ClientTimeout(total=8)) as r:
                     body = await r.text()
                     status, final = r.status, str(r.url)
             except Exception as e:
@@ -236,6 +243,8 @@ class Client:
                         tok = t
             if tok:
                 log.info("csrf: %s", url)
+                if good != url:
+                    db.kv_set("ys_csrf_url", url)
                 self.csrf = tok
                 return tok
             note = "captcha" if "captcha" in (final + body[:3000]).lower() else f"{status}"
@@ -458,6 +467,40 @@ class Client:
             raise YandexError(f"Stsenariyni ishga tushirishda xato: {e}")
 
 
+# Doimiy sessiya: har safar qaytadan kirmaslik uchun (birinchi buyruqdan keyin 1 ta so'rov yetadi)
+_shared: Client | None = None
+_lock = asyncio.Lock()
+
+
+async def _client() -> Client:
+    global _shared
+    if _shared and not _shared.s.closed and _shared.x_token == token():
+        return _shared
+    await reset()
+    c = Client()
+    await c.__aenter__()
+    _shared = c
+    return c
+
+
+async def reset():
+    """Sessiyani yopadi (akkaunt almashsa yoki xato bo'lsa)."""
+    global _shared
+    if _shared:
+        try:
+            await _shared.__aexit__(None, None, None)
+        except Exception:
+            pass
+    _shared = None
+
+
 async def say(text: str, cyrillic: bool = True):
-    async with Client() as c:
-        await c.say(to_cyrillic(text) if cyrillic else text)
+    text = to_cyrillic(text) if cyrillic else text
+    async with _lock:
+        try:
+            await (await _client()).say(text)
+        except Exception as e:
+            # sessiya eskirgan bo'lishi mumkin — yangisi bilan bir marta qayta urinamiz
+            log.warning("kolonka (doimiy sessiya): %s — qayta ulanilmoqda", e)
+            await reset()
+            await (await _client()).say(text)
