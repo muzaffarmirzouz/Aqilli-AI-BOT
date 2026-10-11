@@ -179,25 +179,24 @@ class Client:
 
     # ---------- qurilmalar ----------
     async def speakers(self) -> list[dict]:
-        """Akkauntdagi barcha aqlli kolonkalar: [{'id','name'}]."""
-        data = await self.req("GET", f"{IOT_V3}/devices")
-        found: dict[str, str] = {}
-
-        def walk(o):
-            if isinstance(o, dict):
-                t = str(o.get("type", ""))
-                if o.get("id") and o.get("name") and t.startswith("devices.types.smart_speaker"):
-                    found[o["id"]] = o["name"]
-                for v in o.values():
-                    walk(v)
-            elif isinstance(o, list):
-                for v in o:
-                    walk(v)
-
-        walk(data)
-        if not found:  # eski format
-            walk(await self.req("GET", f"{IOT}/devices"))
-        return [{"id": k, "name": v} for k, v in found.items()]
+        """Akkauntdagi Alisa'li kolonkalar: [{'id','name'}] (v3 ro'yxatidagi quasar_info bo'yicha)."""
+        try:
+            data = await self.req("GET", f"{IOT_V3}/devices")
+        except YandexError as e:
+            raise YandexError(f"Kolonkalar ro'yxatini olishda xato: {e}")
+        out, seen = [], set()
+        for house in data.get("households", []) or []:
+            for d in house.get("all", []) or []:
+                info = d.get("quasar_info") or {}
+                is_speaker = (bool(info) and info.get("platform") not in {"saturn", "mike", "cherry"}) \
+                    or str(d.get("type", "")).startswith("devices.types.smart_speaker")
+                if is_speaker and d.get("id") and d["id"] not in seen and not d.get("sharing_info"):
+                    seen.add(d["id"])
+                    name = d.get("name") or "Kolonka"
+                    if len(data.get("households", [])) > 1 and house.get("name"):
+                        name = f"{name} ({house['name']})"
+                    out.append({"id": d["id"], "name": name})
+        return out
 
     # ---------- stsenariy ----------
     @staticmethod
