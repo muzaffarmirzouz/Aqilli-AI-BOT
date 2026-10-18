@@ -8,7 +8,7 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
   standart — 💵 kurs **08:00**, 🌤 ob-havo **09:00**, 🕌 ertangi namoz vaqtlari **21:00**. Har birini istalgan soatga
   qo'yish (tayyor soatlar yoki «✍️ Boshqa vaqt», masalan 07:30) yoki o'chirish mumkin.
   Namoz: 12:00 dan oldin — bugungi, keyin — ertangi kun vaqtlari. Ob-havo/kurs: 18:00 dan oldin — bugungi, keyin — ertangi.
-- 📣 Botdagi 🌤 / 💵 xabarlari ostida: kanal havolasi + **@Aqilli_AI_Bot** va reklama matni
+- 📣 Botdagi 🌤 / 💵 xabarlari ostida: **@Aqilli_AI_Bot** manzili va reklama matni
   (admin: `/reklama yangi matn`, `/reklama -` — matnsiz, `/reklama standart`). Kanallarga chiqadigan postlarda bu blok yo'q.
 - 🌤 / 💵 tugmalari ham Namanganliklar.uz logoli rasm bilan javob beradi
 - 📢 **Kanal/guruhga admin qilinsa** — har kuni 21:00 da namoz vaqtlari rasmi chiqadi. Ob-havo va dollar kursi rasmlari faqat kanal panelida yoqilsa qo'shiladi (standart: o'chiq).

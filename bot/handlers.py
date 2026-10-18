@@ -819,7 +819,7 @@ async def a_panel_cb(c: CallbackQuery, bot: Bot):
             "📣 <b>Ob-havo va kurs xabarlari ostidagi reklama</b>\n\nHozir shunday chiqadi:\n\n"
             f"{jobs.promo_block()}\n\n"
             "O'zgartirish: <code>/reklama yangi matn</code>\n"
-            "Reklama matnini olib tashlash (faqat kanal va bot manzili qoladi): <code>/reklama -</code>\n"
+            "Reklama matnini olib tashlash (faqat bot manzili qoladi): <code>/reklama -</code>\n"
             "Boshlang'ich matnga qaytarish: <code>/reklama standart</code>", disable_web_page_preview=True)
     elif act == "news":
         await c.message.answer(

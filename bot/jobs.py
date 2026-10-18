@@ -156,7 +156,7 @@ def chat_flags(c) -> dict:
 
 # ---------- reklama bloki (botdagi ob-havo va kurs xabarlari ostida) ----------
 PROMO_BOT = os.getenv("PROMO_BOT", "@Aqilli_AI_Bot").strip()
-PROMO_DEFAULT = "aqlli sun'iy intellekt yordamchingiz. Savolingizni yozing — darhol javob oling!"
+PROMO_DEFAULT = "Kunlik namoz vaqtlari, ob-havo ma'lumoti va valyuta kurslari."
 
 
 def promo_text() -> str:
@@ -165,11 +165,8 @@ def promo_text() -> str:
 
 
 def promo_block() -> str:
-    """Kanal havolasi + bot manzili + admin yozgan reklama matni."""
+    """Bot manzili + admin yozgan reklama matni."""
     lines = []
-    if REQUIRED_CHANNEL:
-        u = REQUIRED_CHANNEL.lstrip("@")
-        lines.append(f"📢 Kanalimiz: <a href=\"https://t.me/{u}\">@{u}</a>")
     if PROMO_BOT:
         t = promo_text().strip()
         lines.append(f"🤖 <b>{html.escape(PROMO_BOT, quote=False)}</b>" + (f" — {html.escape(t, quote=False)}" if t else ""))
