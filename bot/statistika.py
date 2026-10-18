@@ -67,7 +67,7 @@ async def report(bot: Bot) -> str:
         f"30 kun: <b>{_q('SELECT COUNT(*) FROM users WHERE created>=?', d30)}</b>",
         "",
         "<b>⚙️ Xizmatlar</b>",
-        f"🔔 Kechki xabar (21:00): <b>{_q('SELECT COUNT(*) FROM users WHERE active=1 AND notify=1')}</b>",
+        f"🔔 Kunlik xabarlar (kurs/ob-havo/namoz): <b>{_q('SELECT COUNT(*) FROM users WHERE active=1 AND notify=1')}</b>",
         f"🕌 Namoz vaqtida xabar: <b>{_q('SELECT COUNT(*) FROM users WHERE active=1 AND pn=1')}</b>"
         f" (azon bilan: {_q('SELECT COUNT(*) FROM users WHERE active=1 AND pn=1 AND pn_audio=1')})",
         f"🔊 Kolonka: ulangan <b>{ys_connected}</b>, yoqilgan <b>{ys_active}</b>",

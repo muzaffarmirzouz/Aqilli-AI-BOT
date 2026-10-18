@@ -38,6 +38,69 @@ except sqlite3.OperationalError:
 _con.commit()
 
 
+# ---------- kunlik xabarlar jadvali (har foydalanuvchi/kanal o'zi belgilaydi) ----------
+# Ustun qiymati: "HH:MM" — shu soatda yuboriladi, "" — o'chiq.
+ITEMS = ("namoz", "obhavo", "kurs")
+USER_DEFAULTS = {"namoz": "21:00", "obhavo": "09:00", "kurs": "08:00"}
+CHAT_DEFAULTS = {"namoz": "21:00", "obhavo": "09:00", "kurs": "08:00"}
+
+
+def _migrate_schedule():
+    for item in ITEMS:
+        col = f"t_{item}"
+        try:  # foydalanuvchilar: standart vaqtlar; kechki xabarni o'chirganlar uchun — o'chiq
+            _con.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+            _con.execute(f"UPDATE users SET {col} = CASE WHEN notify=1 THEN ? ELSE '' END",
+                         (USER_DEFAULTS[item],))
+        except sqlite3.OperationalError:
+            pass
+        try:  # kanallar: namoz — 21:00, ob-havo/kurs — avval yoqilgan bo'lsa standart soatda
+            _con.execute(f"ALTER TABLE chats ADD COLUMN {col} TEXT")
+            if item == "namoz":
+                _con.execute(f"UPDATE chats SET {col}=?", (CHAT_DEFAULTS[item],))
+            else:
+                flag = "send_weather" if item == "obhavo" else "send_rates"
+                _con.execute(f"UPDATE chats SET {col} = CASE WHEN {flag}=1 THEN ? ELSE '' END",
+                             (CHAT_DEFAULTS[item],))
+        except sqlite3.OperationalError:
+            pass
+    _con.commit()
+
+
+_migrate_schedule()
+
+
+def get_schedule(row, kind: str) -> dict:
+    """{'namoz': '21:00', 'obhavo': '', ...} — None bo'lsa standart qiymat."""
+    dflt = USER_DEFAULTS if kind == "u" else CHAT_DEFAULTS
+    out = {}
+    for item in ITEMS:
+        v = row[f"t_{item}"] if row is not None and f"t_{item}" in row.keys() else None
+        out[item] = dflt[item] if v is None else v
+    return out
+
+
+def set_schedule(kind: str, owner: int, item: str, value: str):
+    table = "users" if kind == "u" else "chats"
+    _con.execute(f"UPDATE {table} SET t_{item}=? WHERE id=?", (value, owner))
+    if kind == "u":  # eski "notify" belgisi: biror xabar yoqilgan bo'lsa — 1
+        r = get_user(owner)
+        any_on = any(get_schedule(r, "u").values())
+        _con.execute("UPDATE users SET notify=? WHERE id=?", (1 if any_on else 0, owner))
+    _con.commit()
+
+
+def due_users(item: str, hhmm: str):
+    return _con.execute(
+        f"SELECT id, COALESCE(region, ?) AS region FROM users WHERE active=1 AND "
+        f"COALESCE(t_{item}, ?)=?", (DEFAULT_REGION, USER_DEFAULTS[item], hhmm)).fetchall()
+
+
+def due_chats(item: str, hhmm: str):
+    return _con.execute(f"SELECT * FROM chats WHERE active=1 AND COALESCE(t_{item}, ?)=?",
+                        (CHAT_DEFAULTS[item], hhmm)).fetchall()
+
+
 # ---------- foydalanuvchilar ----------
 def upsert_user(uid: int, name: str):
     _con.execute(
@@ -141,7 +204,8 @@ def stats():
     return {
         "users": q("SELECT COUNT(*) FROM users"),
         "active": q("SELECT COUNT(*) FROM users WHERE active=1"),
-        "notify": q("SELECT COUNT(*) FROM users WHERE active=1 AND notify=1"),
+        "notify": q("SELECT COUNT(*) FROM users WHERE active=1 AND "
+                    "(COALESCE(t_namoz,'21:00')<>'' OR COALESCE(t_obhavo,'09:00')<>'' OR COALESCE(t_kurs,'08:00')<>'')"),
         "chats": q("SELECT COUNT(*) FROM chats WHERE active=1"),
     }
 

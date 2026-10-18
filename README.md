@@ -4,7 +4,12 @@ Hamma foydalanishi mumkin bo'lgan Telegram bot:
 - 🕌 **Namoz vaqtlari** — bugun / ertaga, keyingi namozgacha qolgan vaqt, rasm ko'rinishida
 - 🌤 **Ob-havo** — hozirgi va ertangi (Open-Meteo)
 - 💵 **Valyuta kursi** — Markaziy bank (USD, EUR, RUB), ertangi kurs e'lon qilingan bo'lsa u ham
-- 🔔 **Har kuni 21:00** da ertangi kun: 3 ta rasm (albom) — namoz vaqtlari, ob-havo, valyuta kursi
+- 🔔 **Kunlik xabarlar — har kim o'z soatini tanlaydi** («🔔 Kunlik xabarlar» tugmasi yoki /jadval):
+  standart — 💵 kurs **08:00**, 🌤 ob-havo **09:00**, 🕌 ertangi namoz vaqtlari **21:00**. Har birini istalgan soatga
+  qo'yish (tayyor soatlar yoki «✍️ Boshqa vaqt», masalan 07:30) yoki o'chirish mumkin.
+  Namoz: 12:00 dan oldin — bugungi, keyin — ertangi kun vaqtlari. Ob-havo/kurs: 18:00 dan oldin — bugungi, keyin — ertangi.
+- 📣 Botdagi 🌤 / 💵 xabarlari ostida: kanal havolasi + **@Aqilli_AI_Bot** va reklama matni
+  (admin: `/reklama yangi matn`, `/reklama -` — matnsiz, `/reklama standart`). Kanallarga chiqadigan postlarda bu blok yo'q.
 - 🌤 / 💵 tugmalari ham Namanganliklar.uz logoli rasm bilan javob beradi
 - 📢 **Kanal/guruhga admin qilinsa** — har kuni 21:00 da namoz vaqtlari rasmi chiqadi. Ob-havo va dollar kursi rasmlari faqat kanal panelida yoqilsa qo'shiladi (standart: o'chiq).
   Rasmda har doim Namanganliklar.uz nomi va logosi bo'ladi (kanal nomi yozilmaydi).
@@ -77,7 +82,8 @@ Botda «📢 Kanalimga ulash» → kanal nomi (⚙️) bosiladi:
 - 📣 **Reklama matni** — reklama joyiga yoziladigan matn (bo'sh bo'lsa «Reklamangiz uchun joy»)
 - 📞 **Bog'lanish** — reklama ostidagi kontakt (standart: kanal @username; `-` — ko'rsatmaslik)
 - 🖼 **Reklama rasmi** — reklama joyiga to'liq rasm (gorizontal, ~4:1)
-- 🌤 **Ob-havo rasmi** / 💵 **Kurs rasmi** — yoqish/o'chirish (standart: o'chiq)
+- 🕘 **Kunlik xabarlar jadvali** — kanal uchun ham namoz / ob-havo / kurs soatini alohida tanlash yoki o'chirish
+  (standart: namoz 21:00; ob-havo va kurs o'chiq — yoqilsa 09:00 / 08:00)
 - 🗑 **Reklamani tozalash**, 👁 **Ko'rinishni ko'rish**, 📤 **Hozir kanalga sinov post**
 Har o'zgarishdan keyin bot yangi ko'rinishni sizga yuboradi.
 

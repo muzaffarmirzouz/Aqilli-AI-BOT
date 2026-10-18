@@ -27,7 +27,8 @@ pm.message.filter(F.chat.type == ChatType.PRIVATE)
 router.include_router(pm)
 
 B_PRAYER, B_WEATHER, B_RATES = "🕌 Namoz vaqtlari", "🌤 Ob-havo", "💵 Valyuta kursi"
-B_REGION, B_NOTIFY, B_CHANNEL = "📍 Hududni o'zgartirish", "🔔 Kechki xabar", "📢 Kanalimga ulash"
+B_REGION, B_NOTIFY, B_CHANNEL = "📍 Hududni o'zgartirish", "🔔 Kunlik xabarlar", "📢 Kanalimga ulash"
+B_NOTIFY_OLD = "🔔 Kechki xabar"  # eski klaviaturalar uchun
 
 
 MULTI = len(REGIONS) > 1  # bitta hudud bo'lsa, hudud tanlash ko'rsatilmaydi
@@ -87,7 +88,7 @@ def welcome_text(first_name: str) -> str:
         f"• 🕌 {region_name(DEFAULT_REGION)} namoz vaqtlari — bugun va ertaga, takbir bilan\n"
         "• 🌤 Ob-havo — hozir va keyingi kunlar\n"
         "• 💵 Valyuta kursi — Markaziy bank kursi\n"
-        f"• 🔔 Har kuni soat {SEND_AT} da ertangi kun ma'lumotlarini o'zi yuboradi\n"
+        "• 🔔 Har kuni o'zingiz tanlagan soatda yuboradi (standart: kurs 08:00, ob-havo 09:00, namoz 21:00)\n"
         "• 🕌 Har 5 vaqt namoz kirganda xabar (xohlasangiz azon audiosi bilan)\n"
         "• 📢 Kanalingizga admin qilsangiz, har kuni namoz vaqtlari rasmini o'zi joylaydi\n"
         "• 🔊 Yandex Stansiyangiz har namoz vaqtida siz yozgan gapni aytadi\n"
@@ -100,6 +101,7 @@ def welcome_text(first_name: str) -> str:
 @pm.message(CommandStart())
 async def start(m: Message):
     PENDING.pop(m.from_user.id, None)
+    TIME_WAIT.pop(m.from_user.id, None)
     db.upsert_user(m.from_user.id, m.from_user.full_name)
     u = db.get_user(m.from_user.id)
     if not u["region"] and not MULTI:
@@ -110,7 +112,7 @@ async def start(m: Message):
         await m.answer(
             f"Assalomu alaykum, {m.from_user.first_name}! 👋\n\n"
             "Men har kuni namoz vaqtlari, ob-havo va valyuta kursini yuboraman. "
-            f"Har kuni soat {SEND_AT} da ertangi kun ma'lumotlarini olasiz.\n\n"
+            "Vaqtlarini o'zingiz tanlaysiz (standart: kurs 08:00, ob-havo 09:00, namoz 21:00).\n\n"
             "📍 Avval hududingizni tanlang:",
             reply_markup=region_kb("reg"),
         )
@@ -149,7 +151,8 @@ async def set_region(c: CallbackQuery):
     db.set_user(c.from_user.id, region=key)
     await c.message.edit_text(f"✅ Hudud: <b>{region_name(key)}</b>")
     await c.message.answer(
-        f"Tayyor! Har kuni soat {SEND_AT} da ertangi namoz vaqtlari, ob-havo va dollar kursini yuboraman.",
+        "Tayyor! Har kuni valyuta kursini 08:00 da, ob-havoni 09:00 da, ertangi namoz vaqtlarini 21:00 da yuboraman. "
+        "Soatlarni «🔔 Kunlik xabarlar» tugmasida o'zgartirasiz.",
         reply_markup=menu(c.from_user.id),
     )
     await c.answer()
@@ -221,10 +224,13 @@ async def weather(m: Message):
     img = None
     if w:
         img = await asyncio.to_thread(jobs.weather_bytes, r, d, {"w": w}, **jobs.bot_style())
+    txt = jobs.with_promo(txt)
     if img and len(txt) <= 1000:
         await m.answer_photo(BufferedInputFile(img, "obhavo.jpg"), caption=txt)
     else:
-        await m.answer(txt)
+        if img:
+            await m.answer_photo(BufferedInputFile(img, "obhavo.jpg"))
+        await m.answer(txt, disable_web_page_preview=True)
 
 
 @pm.message(F.text == B_RATES)
@@ -243,21 +249,138 @@ async def rates(m: Message):
     # rasm: ertangi kurs e'lon qilingan bo'lsa — ertangi, aks holda bugungi
     rd, rr_ = (tom, tom_r) if tom_r else (t, now_r)
     img = await asyncio.to_thread(jobs.rates_bytes, DEFAULT_REGION, rd, rr_, **jobs.bot_style())
+    msg = jobs.with_promo(msg)
     if img and len(msg) <= 1000:
         await m.answer_photo(BufferedInputFile(img, "kurs.jpg"), caption=msg)
     else:
-        await m.answer(msg)
+        if img:
+            await m.answer_photo(BufferedInputFile(img, "kurs.jpg"))
+        await m.answer(msg, disable_web_page_preview=True)
 
 
-# =================== Kechki xabar ===================
-@pm.message(F.text == B_NOTIFY)
-async def toggle_notify(m: Message):
+# =================== Kunlik xabarlar jadvali ===================
+ITEM_NAMES = {"namoz": "🕌 Namoz vaqtlari", "obhavo": "🌤 Ob-havo", "kurs": "💵 Valyuta kursi"}
+TIME_WAIT: dict[int, tuple[str, str]] = {}  # foydalanuvchi -> (egasi, tur): aniq vaqt yozishini kutyapmiz
+
+
+def _sched_row(own: str):
+    return db.get_user(int(own[1:])) if own.startswith("u") else db.get_chat(int(own))
+
+
+def sched_text(own: str) -> str:
+    row = _sched_row(own)
+    sch = db.get_schedule(row, "u" if own.startswith("u") else "c")
+    who = "Sizga" if own.startswith("u") else f"<b>{html.escape(row['title'] or '')}</b> kanaliga"
+    lines = [f"🔔 <b>Kunlik xabarlar</b>\n{who} har kuni belgilangan soatda yuboriladi:\n"]
+    for item in db.ITEMS:
+        t = sch[item]
+        lines.append(f"{ITEM_NAMES[item]} — <b>{t or '❌ o‘chiq'}</b>"
+                     + (f" <i>({jobs.item_hint(item, t)})</i>" if t else ""))
+    lines.append("\nO'zgartirish uchun tanlang 👇")
+    return "\n".join(lines)
+
+
+def sched_kb(own: str):
+    row = _sched_row(own)
+    sch = db.get_schedule(row, "u" if own.startswith("u") else "c")
+    kb = InlineKeyboardBuilder()
+    for item in db.ITEMS:
+        kb.button(text=f"{ITEM_NAMES[item]} · {sch[item] or '❌'}", callback_data=f"sc:{own}:{item}")
+    if own.startswith("u"):
+        if any(sch.values()):
+            kb.button(text="🔕 Hammasini o'chirish", callback_data=f"sco:{own}")
+        else:
+            kb.button(text="🔔 Standart jadvalni yoqish", callback_data=f"scd:{own}")
+    else:
+        kb.button(text="◀️ Kanal sozlamalari", callback_data=f"ch:{own}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def time_kb(own: str, item: str):
+    kb = InlineKeyboardBuilder()
+    for h in range(5, 24):
+        kb.button(text=f"{h:02d}:00", callback_data=f"sct:{own}:{item}:{h:02d}00")
+    kb.button(text="✍️ Boshqa vaqt", callback_data=f"scw:{own}:{item}")
+    kb.button(text="❌ O'chirish", callback_data=f"sct:{own}:{item}:off")
+    kb.button(text="◀️ Orqaga", callback_data=f"scb:{own}")
+    kb.adjust(4, 4, 4, 4, 3, 2, 1)
+    return kb.as_markup()
+
+
+async def _sched_allowed(c: CallbackQuery, bot: Bot, own: str) -> bool:
+    if own.startswith("u"):
+        return int(own[1:]) == c.from_user.id
+    cid = int(own)
+    return bool(db.get_chat(cid)) and await is_chat_admin(bot, cid, c.from_user.id)
+
+
+@pm.message(F.text.in_({B_NOTIFY, B_NOTIFY_OLD}))
+@pm.message(Command("jadval"))
+async def schedule_menu(m: Message):
     db.upsert_user(m.from_user.id, m.from_user.full_name)
-    u = db.get_user(m.from_user.id)
-    new = 0 if u["notify"] else 1
-    db.set_user(m.from_user.id, notify=new)
-    await m.answer(f"🔔 Har kuni soat {SEND_AT} dagi xabar <b>yoqildi</b>." if new
-                   else "🔕 Kechki xabar <b>o'chirildi</b>. Qayta yoqish uchun tugmani yana bosing.")
+    own = f"u{m.from_user.id}"
+    await m.answer(sched_text(own), reply_markup=sched_kb(own))
+
+
+@router.callback_query(F.data.regexp(r"^(sc|scb|sco|scd|sct|scw|chs):"))
+async def schedule_cb(c: CallbackQuery, bot: Bot):
+    parts = c.data.split(":")
+    act, own = parts[0], parts[1]
+    if not await _sched_allowed(c, bot, own):
+        return await c.answer("Ruxsat yo'q", show_alert=True)
+    kind = "u" if own.startswith("u") else "c"
+    owner = int(own[1:]) if kind == "u" else int(own)
+
+    async def show(text=None, kb=None):
+        try:
+            await c.message.edit_text(text or sched_text(own), reply_markup=kb or sched_kb(own))
+        except Exception:
+            await c.message.answer(text or sched_text(own), reply_markup=kb or sched_kb(own))
+
+    if act in ("scb", "chs"):
+        await show()
+    elif act == "sc":
+        item = parts[2]
+        await show(f"{ITEM_NAMES[item]} — qaysi soatda yuborilsin?\n"
+                   "<i>Namoz: 12:00 dan oldin — bugungi, keyin — ertangi kun vaqtlari.\n"
+                   "Ob-havo va kurs: 18:00 dan oldin — bugungi, keyin — ertangi.</i>", time_kb(own, item))
+    elif act == "sct":
+        item, val = parts[2], parts[3]
+        t = "" if val == "off" else f"{val[:2]}:{val[2:]}"
+        db.set_schedule(kind, owner, item, t)
+        await c.answer(f"{ITEM_NAMES[item]}: {t or 'o‘chirildi'}")
+        return await show()
+    elif act == "scw":
+        TIME_WAIT[c.from_user.id] = (own, parts[2])
+        await c.message.answer(f"✍️ {ITEM_NAMES[parts[2]]} uchun vaqtni yozing, masalan <code>07:30</code>\n"
+                               "Bekor qilish: /start")
+    elif act == "sco":
+        for item in db.ITEMS:
+            db.set_schedule(kind, owner, item, "")
+        await c.answer("Barcha kunlik xabarlar o'chirildi")
+        return await show()
+    elif act == "scd":
+        for item in db.ITEMS:
+            db.set_schedule(kind, owner, item, (db.USER_DEFAULTS if kind == "u" else db.CHAT_DEFAULTS)[item])
+        await c.answer("Standart jadval yoqildi")
+        return await show()
+    await c.answer()
+
+
+@pm.message(F.func(lambda m: m.from_user.id in TIME_WAIT and not (m.text or "").startswith("/")))
+async def schedule_time_typed(m: Message):
+    own, item = TIME_WAIT[m.from_user.id]
+    mm = re.fullmatch(r"\s*(\d{1,2})[:.\s](\d{2})\s*", m.text or "")
+    if not mm or int(mm.group(1)) > 23 or int(mm.group(2)) > 59:
+        return await m.answer("Vaqtni <code>SS:DD</code> ko'rinishida yozing, masalan <code>07:30</code>. "
+                              "Bekor qilish: /start")
+    TIME_WAIT.pop(m.from_user.id, None)
+    t = f"{int(mm.group(1)):02d}:{mm.group(2)}"
+    kind = "u" if own.startswith("u") else "c"
+    db.set_schedule(kind, int(own[1:]) if kind == "u" else int(own), item, t)
+    await m.answer(f"✅ {ITEM_NAMES[item]}: <b>{t}</b>")
+    await m.answer(sched_text(own), reply_markup=sched_kb(own))
 
 
 # =================== Kanalga ulash ===================
@@ -277,8 +400,8 @@ async def channel_info(m: Message, bot: Bot):
     await m.answer(
         "📢 <b>Kanalingizga har kuni avtomatik post</b>\n\n"
         "Botni kanalingizga <b>admin</b> qilib qo'shing (faqat «Xabar joylash» huquqi kifoya). "
-        f"Shundan keyin har kuni soat {SEND_AT} da kanalingizga ertangi namoz vaqtlari, "
-        "ob-havo va dollar kursi tushirilgan chiroyli rasm chiqadi.\n\n"
+        "Shundan keyin har kuni soat 21:00 da kanalingizga ertangi namoz vaqtlari rasmi chiqadi. "
+        "Kanal sozlamalarida (⚙️) ob-havo va dollar kursini ham yoqib, har birining soatini tanlashingiz mumkin.\n\n"
         "Rasmda kanalingiz nomi va @username avtomatik yoziladi.",
         reply_markup=kb.as_markup(),
     )
@@ -304,11 +427,7 @@ def chat_kb(cid: int):
     kb.button(text="📞 Bog'lanish", callback_data=f"cac:{cid}")
     kb.button(text="🖼 Reklama rasmi", callback_data=f"cai:{cid}")
     kb.button(text="🗑 Reklamani tozalash", callback_data=f"cax:{cid}")
-    ch = db.get_chat(cid)
-    on_w = bool(ch and ch["send_weather"])
-    on_r = bool(ch and ch["send_rates"])
-    kb.button(text=f"🌤 Ob-havo rasmi: {'✅ yoqilgan' if on_w else '❌ o‘chiq'}", callback_data=f"ctw:{cid}")
-    kb.button(text=f"💵 Kurs rasmi: {'✅ yoqilgan' if on_r else '❌ o‘chiq'}", callback_data=f"ctr:{cid}")
+    kb.button(text="🕘 Kunlik xabarlar jadvali", callback_data=f"chs:{cid}")
     kb.button(text="📤 Hozir kanalga sinov post", callback_data=f"cht:{cid}")
     kb.adjust(2, 2, 2, 1, 1, 1)
     return kb.as_markup()
@@ -318,10 +437,10 @@ def chat_summary(ch) -> str:
     th = THEMES.get(ch["theme"] or DEFAULT_THEME, THEMES[DEFAULT_THEME])["title"]
     contact = ch["ad_contact"] if ch["ad_contact"] is not None else AD_CONTACT
     ad = "rasm" if ch["ad_file"] else (ch["ad_text"] or "«Reklamangiz uchun joy»")
-    extra = [n for n, f in (("ob-havo", ch["send_weather"]), ("dollar kursi", ch["send_rates"])) if f]
-    daily = "namoz vaqtlari" + (" + " + " + ".join(extra) if extra else "")
+    sch = db.get_schedule(ch, "c")
+    daily = " · ".join(f"{n} {sch[k] or '❌'}" for k, n in (("namoz", "🕌"), ("obhavo", "🌤"), ("kurs", "💵")))
     return (f"⚙️ <b>{ch['title']}</b>\n"
-            f"🕘 Har kuni {SEND_AT} da: {daily}\n"
+            f"🕘 Har kuni: {daily}\n"
             f"🎨 Rang: {th}\n📣 Reklama: {ad}\n📞 Bog'lanish: {contact or '—'}")
 
 
@@ -384,7 +503,8 @@ async def on_my_member(ev: ChatMemberUpdated, bot: Bot):
             await bot.send_message(
                 ev.from_user.id,
                 f"✅ Bot <b>{chat.title}</b> ga ulandi.\n"
-                f"Har kuni soat {SEND_AT} da ertangi namoz vaqtlari rasmi chiqadi.\n"
+                "Har kuni soat 21:00 da ertangi namoz vaqtlari rasmi chiqadi "
+                "(soatni va boshqa xabarlarni «🕘 Kunlik xabarlar jadvali»da o'zgartirasiz).\n"
                 f"📍 Hudud: <b>{region_name(region)}</b>."
                 + (" O'zgartirish uchun tanlang:" if MULTI else "\nSinab ko'rish uchun 👇"),
                 reply_markup=region_kb(f"creg:{chat.id}") if MULTI else chat_kb(chat.id),
@@ -651,6 +771,7 @@ def admin_kb():
     kb.button(text="📢 Barcha kanallar", callback_data="adm:chats")
     kb.button(text="📊 Statistika", callback_data="adm:stat")
     kb.button(text="📰 Yangilik rasmi", callback_data="adm:news")
+    kb.button(text="📣 Bot reklamasi", callback_data="adm:promo")
     kb.button(text="🔊 Yandex kolonka", callback_data="adm:ys")
     kb.adjust(2)
     return kb.as_markup()
@@ -693,6 +814,13 @@ async def a_panel_cb(c: CallbackQuery, bot: Bot):
                 kb.button(text=f"⚙️ {ch['title']} · {th}", callback_data=f"ch:{ch['id']}")
             kb.adjust(1)
             await c.message.answer(f"📢 Ulangan kanal/guruhlar: {len(chats)}", reply_markup=kb.as_markup())
+    elif act == "promo":
+        await c.message.answer(
+            "📣 <b>Ob-havo va kurs xabarlari ostidagi reklama</b>\n\nHozir shunday chiqadi:\n\n"
+            f"{jobs.promo_block()}\n\n"
+            "O'zgartirish: <code>/reklama yangi matn</code>\n"
+            "Reklama matnini olib tashlash (faqat kanal va bot manzili qoladi): <code>/reklama -</code>\n"
+            "Boshlang'ich matnga qaytarish: <code>/reklama standart</code>", disable_web_page_preview=True)
     elif act == "news":
         await c.message.answer(
             "📰 <b>Yangilik rasmi</b>\n\n"
@@ -1310,6 +1438,21 @@ async def a_site(m: Message, command: CommandObject):
                    "bosilganda chiqadi.\nO'chirish: /sayt off · Yoqish: /sayt on")
 
 
+@admin.message(Command("reklama"))
+async def a_promo(m: Message, command: CommandObject):
+    arg = (command.args or "").strip()
+    if not arg:
+        return await m.answer(f"Hozirgi reklama:\n\n{jobs.promo_block()}\n\n"
+                              "O'zgartirish: <code>/reklama yangi matn</code>", disable_web_page_preview=True)
+    if arg.lower() == "standart":
+        db.kv_set("promo_text", jobs.PROMO_DEFAULT)
+    else:
+        if len(arg) > 300:
+            return await m.answer(f"Juda uzun ({len(arg)} belgi). 300 belgigacha yozing.")
+        db.kv_set("promo_text", "" if arg == "-" else arg)
+    await m.answer(f"✅ Saqlandi. Endi shunday chiqadi:\n\n{jobs.promo_block()}", disable_web_page_preview=True)
+
+
 @admin.message(Command("admin"))
 async def a_help(m: Message):
     await m.answer(
@@ -1321,6 +1464,7 @@ async def a_help(m: Message):
         "/kolonka_stat — nechta foydalanuvchi kolonka ulagan\n"
         "/kolonka_cookie — QR ishlamasa, cookie bilan ulash (zaxira)\n"
         "/eslatma_stat — namoz vaqtida xabar oluvchilar soni\n"
+        "/reklama matn — ob-havo va kurs ostidagi @Aqilli_AI_Bot reklamasini o'zgartirish\n"
         "/stat yoki /statistika — umumiy statistika (foydalanuvchilar, faollik, xizmatlar, majburiy obuna holati)\n"
         "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
         "/meta — Facebook va Instagram ulanishini tekshirish\n"

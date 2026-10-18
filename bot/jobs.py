@@ -8,7 +8,10 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.types import BufferedInputFile, InputMediaPhoto
 
 from . import db, prayer_table, sources, subscribe, texts
-from .config import AD_CONTACT, ADMIN_IDS, BRAND, PRECHECK_MIN, REMIND_DAYS, SEND_AT, TZ
+import html
+import os
+
+from .config import AD_CONTACT, ADMIN_IDS, BRAND, PRECHECK_MIN, REMIND_DAYS, REQUIRED_CHANNEL, SEND_AT, TZ
 from .poster import default_logo, render, render_rates, render_weather
 from .regions import name as region_name
 
@@ -147,7 +150,35 @@ async def send_items(bot: Bot, chat_id: int, items, caption: str):
 
 
 def chat_flags(c) -> dict:
-    return dict(weather=bool(c["send_weather"]), rates=bool(c["send_rates"]))
+    sch = db.get_schedule(c, "c")
+    return dict(weather=bool(sch["obhavo"]), rates=bool(sch["kurs"]))
+
+
+# ---------- reklama bloki (botdagi ob-havo va kurs xabarlari ostida) ----------
+PROMO_BOT = os.getenv("PROMO_BOT", "@Aqilli_AI_Bot").strip()
+PROMO_DEFAULT = "aqlli sun'iy intellekt yordamchingiz. Savolingizni yozing — darhol javob oling!"
+
+
+def promo_text() -> str:
+    v = db.kv_get("promo_text")
+    return PROMO_DEFAULT if v is None else v
+
+
+def promo_block() -> str:
+    """Kanal havolasi + bot manzili + admin yozgan reklama matni."""
+    lines = []
+    if REQUIRED_CHANNEL:
+        u = REQUIRED_CHANNEL.lstrip("@")
+        lines.append(f"📢 Kanalimiz: <a href=\"https://t.me/{u}\">@{u}</a>")
+    if PROMO_BOT:
+        t = promo_text().strip()
+        lines.append(f"🤖 <b>{html.escape(PROMO_BOT, quote=False)}</b>" + (f" — {html.escape(t, quote=False)}" if t else ""))
+    return "\n".join(lines)
+
+
+def with_promo(text: str) -> str:
+    p = promo_block()
+    return f"{text}\n\n{p}" if p else text
 
 
 def _media(items, caption: str):
@@ -172,9 +203,9 @@ def channel_caption(region: str, d: date, data: dict, username: str | None) -> s
     return "\n".join(lines)
 
 
-def user_caption(region: str, d: date, data: dict) -> str:
+def user_caption(region: str, d: date, data: dict, label: str = "Ertangi kun") -> str:
     rec = data["rec"]
-    lines = [f"🌙 <b>Ertangi kun — {texts.dstr(d)}</b>"]
+    lines = [f"🌙 <b>{label} — {texts.dstr(d)}</b>"]
     if rec:
         t = rec["times"]
         lines.append(f"🕌 Bomdod {t['bomdod']} · Peshin {t['peshin']} · Asr {t['asr']} · "
@@ -325,35 +356,175 @@ def _at(day: date, hhmm: str) -> datetime:
     return datetime(day.year, day.month, day.day, h, m, tzinfo=TZ)
 
 
-async def scheduler(bot: Bot):
-    """Har kuni SEND_AT da yuboradi, PRECHECK_MIN daqiqa oldin tekshiradi."""
-    while True:
-        n = now()
-        today = n.date()
-        send_t = _at(today, SEND_AT)
-        check_t = send_t - timedelta(minutes=PRECHECK_MIN)
-        last = db.kv_get("last_sent")
-        last_chk = db.kv_get("last_check")
+# ================= Jadval bo'yicha yuborish =================
+def target_date(item: str, hhmm: str, today: date) -> date:
+    """Qaysi kun ma'lumoti: namoz — 12:00 dan keyin ertangi; ob-havo va kurs — 18:00 dan keyin ertangi."""
+    h = int(hhmm[:2])
+    if item == "namoz":
+        return today + timedelta(days=1) if h >= 12 else today
+    return today + timedelta(days=1) if h >= 18 else today
 
-        if n >= check_t and n < send_t and last_chk != today.isoformat():
+
+def item_hint(item: str, hhmm: str) -> str:
+    if not hhmm:
+        return "o'chiq"
+    h = int(hhmm[:2])
+    if item == "namoz":
+        return "ertangi kun" if h >= 12 else "bugungi kun"
+    if item == "obhavo":
+        return "ertangi kun" if h >= 18 else "bugungi kun"
+    return "ertangi kurs (e'lon qilingan bo'lsa)" if h >= 18 else "bugungi kurs"
+
+
+async def _photo_or_text(bot: Bot, chat_id: int, img, caption: str, name: str):
+    """Rasm + izoh (1024 belgidan oshsa — rasm, keyin matn)."""
+    if not img:
+        return await bot.send_message(chat_id, caption, disable_web_page_preview=True)
+    src = img if isinstance(img, str) else BufferedInputFile(img, f"{name}.jpg")
+    if len(caption) <= 1000:
+        return await bot.send_photo(chat_id, src, caption=caption)
+    m = await bot.send_photo(chat_id, src)
+    await bot.send_message(chat_id, caption, disable_web_page_preview=True)
+    return m
+
+
+async def _rates_for(hhmm: str, today: date):
+    """(sana, kurslar, sarlavha) — kechqurun ertangi kurs e'lon qilingan bo'lsa, o'shani."""
+    now_r = await sources.get_rates(today)
+    if int(hhmm[:2]) >= 18:
+        tom = today + timedelta(days=1)
+        tom_r = await sources.get_rates(tom)
+        if tom_r and tom_r.get("USD", {}).get("date") == tom.strftime("%d.%m.%Y"):
+            return tom, tom_r, "Ertangi valyuta kursi"
+    return today, now_r, "Bugungi valyuta kursi"
+
+
+async def send_item(bot: Bot, item: str, hhmm: str, users, chats) -> tuple[int, int, set]:
+    """Bitta turdagi xabarni (namoz / ob-havo / kurs) shu daqiqaga belgilaganlarga yuboradi."""
+    today = now().date()
+    d = target_date(item, hhmm, today)
+    label = "Ertangi kun" if d > today else "Bugun"
+    cache: dict[str, dict] = {}
+    missing: set[str] = set()
+
+    async def data_for(region):
+        if region not in cache:
+            cache[region] = await collect(region, d)
+        return cache[region]
+
+    rates_pack = await _rates_for(hhmm, today) if item == "kurs" else None
+    ustyle = bot_style()
+    uploaded: dict[str, str | None] = {}  # hudud -> Telegram file_id (qayta yuklamaslik uchun)
+
+    async def user_payload(region):
+        data = await data_for(region)
+        if item == "namoz":
+            img = await asyncio.to_thread(poster_bytes, region, d, data, BRAND, "", **ustyle)
+            if img is None:
+                missing.add(region_name(region))
+                return None, texts.evening_digest(region, d, data["rec"], data["w"], data["rates"], data["rates_for_d"])
+            return img, user_caption(region, d, data, label)
+        if item == "obhavo":
+            img = await asyncio.to_thread(weather_bytes, region, d, data, **ustyle)
+            txt = texts.weather_day(region, d, data["w"])
+            return img, with_promo(txt)
+        rd, rr, title = rates_pack
+        img = await asyncio.to_thread(rates_bytes, region, rd, rr, **ustyle)
+        return img, with_promo(texts.rates_block(rr, title))
+
+    sent_u = 0
+    payloads: dict[str, tuple] = {}
+    for u in users:
+        if not await subscribe.is_subscribed(bot, u["id"]):
+            continue
+        r = u["region"]
+        if r not in payloads:
+            payloads[r] = await user_payload(r)
+        img, cap = payloads[r]
+        src = uploaded.get(r) or img
+        m = await _safe(lambda: _photo_or_text(bot, u["id"], src, cap, item),
+                        on_forbidden=lambda uid=u["id"]: db.set_user(uid, active=0))
+        if m is not None and getattr(m, "photo", None) and r not in uploaded:
+            uploaded[r] = m.photo[-1].file_id
+        sent_u += bool(m)
+        await asyncio.sleep(0.05)
+
+    sent_c = 0
+    for c in chats:
+        data = await data_for(c["region"])
+        style = await chat_style(bot, c)
+        if item == "namoz":
+            img = await asyncio.to_thread(poster_bytes, c["region"], d, data, BRAND, "", **style)
+            if img is None:
+                missing.add(region_name(c["region"]))
+                continue
+            cap = channel_caption(c["region"], d, data, c["username"])
+        elif item == "obhavo":
+            img = await asyncio.to_thread(weather_bytes, c["region"], d, data, **style)
+            if img is None:
+                continue
+            cap = f"🌤 <b>{texts.dstr(d).capitalize()} — {region_name(c['region'])} ob-havosi</b>"
+        else:
+            rd, rr, title = rates_pack
+            img = await asyncio.to_thread(rates_bytes, c["region"], rd, rr, **style)
+            if img is None:
+                continue
+            cap = f"💵 <b>{title} — {texts.dstr(rd)}</b>"
+        if item != "namoz" and c["username"]:
+            cap += f"\n\n👉 @{c['username']}"
+        m = await _safe(lambda: bot.send_photo(c["id"], BufferedInputFile(img, f"{item}.jpg"), caption=cap),
+                        on_forbidden=lambda cid=c["id"]: db.set_chat(cid, active=0))
+        sent_c += bool(m)
+        await asyncio.sleep(0.2)
+    return sent_u, sent_c, missing
+
+
+async def run_minute(bot: Bot, hhmm: str):
+    for item in db.ITEMS:
+        users, chats = db.due_users(item, hhmm), db.due_chats(item, hhmm)
+        if not users and not chats:
+            continue
+        try:
+            su, sc, missing = await send_item(bot, item, hhmm, users, chats)
+            log.info("%s %s: %s foydalanuvchi, %s kanal", hhmm, item, su, sc)
+            if missing:
+                key = f"miss:{now().date().isoformat()}"
+                if db.kv_get(key) is None:
+                    db.kv_set(key, "1")
+                    await notify_admins(bot, f"⚠️ Namoz vaqtlari topilmagani uchun rasm chiqmadi: "
+                                             f"{', '.join(sorted(missing))}. /oylik bilan kiriting.")
+        except Exception as e:
+            log.exception("%s %s: %s", hhmm, item, e)
+            await notify_admins(bot, f"❌ {hhmm} dagi «{item}» yuborishda xato: {html.escape(str(e))[:200]}")
+
+
+async def scheduler(bot: Bot):
+    """Har daqiqada: shu soatga belgilangan xabarlarni yuboradi. SEND_AT dan PRECHECK_MIN oldin — tekshiruv.
+    Bot qayta ishga tushsa, 20 daqiqagacha o'tkazib yuborilganlarni ham yuboradi."""
+    while True:
+        n = now().replace(second=0, microsecond=0)
+        today = n.date()
+
+        check_t = _at(today, SEND_AT) - timedelta(minutes=PRECHECK_MIN)
+        if n >= check_t and db.kv_get("last_check") != today.isoformat():
             db.kv_set("last_check", today.isoformat())
             try:
                 await precheck(bot)
             except Exception as e:
                 log.exception("precheck: %s", e)
-            continue
 
-        # Yuborish vaqti keldi (yoki bot qayta ishga tushgan va bugun hali yuborilmagan, 23:30 gacha)
-        if send_t <= n < _at(today, "23:30") and last != today.isoformat():
-            db.kv_set("last_sent", today.isoformat())
-            try:
-                await evening(bot)
-            except Exception as e:
-                log.exception("evening: %s", e)
-                await notify_admins(bot, f"❌ Kechki yuborishda xato: {e}")
-            continue
+        last_s = db.kv_get("sched_last")
+        try:
+            last = datetime.fromisoformat(last_s) if last_s else None
+        except ValueError:
+            last = None
+        if last is None or last > n or (n - last) > timedelta(minutes=20):
+            last = n - timedelta(minutes=1)
+        m = last + timedelta(minutes=1)
+        while m <= n:
+            await run_minute(bot, m.strftime("%H:%M"))
+            db.kv_set("sched_last", m.isoformat())
+            m += timedelta(minutes=1)
 
-        # keyingi hodisagacha kutamiz (ko'pi bilan 60 soniya)
-        targets = [t for t in (check_t, send_t) if t > n]
-        wait = min([(t - n).total_seconds() for t in targets] + [60])
-        await asyncio.sleep(max(1, wait))
+        nxt = n + timedelta(minutes=1)
+        await asyncio.sleep(max(1, (nxt - now()).total_seconds() + 1))
