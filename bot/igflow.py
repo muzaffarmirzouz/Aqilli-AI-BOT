@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import random
+import re
 import time
 from collections import OrderedDict
 
@@ -145,15 +146,59 @@ def _pick(text: str) -> str:
     return random.choice(variants) if variants else ""
 
 
-def match_rule(text: str, rules: list[dict]) -> dict | None:
+def match_rule(text: str, rules: list[dict], media_id: str = "", dm: bool = False) -> dict | None:
+    """Matndagi kalit so'zga mos qoidani topadi.
+    Bitta postga bog'langan qoidalar (rule["media"]) faqat o'sha postdagi izohlarga ishlaydi va umumiy
+    qoidalardan ustun turadi; DM'larda ular e'tiborga olinmaydi."""
     t = (text or "").lower()
     if not t:
         return None
-    for r in rules:
-        for kw in r.get("kw", []):
-            if kw and kw in t:
-                return r
+    for bound in (True, False):
+        for r in rules:
+            media = r.get("media") or []
+            if bool(media) != bound:
+                continue
+            if bound and (dm or str(media_id) not in media):
+                continue
+            for kw in r.get("kw", []):
+                if kw and kw in t:
+                    return r
     return None
+
+
+_POST_RE = re.compile(r"instagram\.com/(?:[\w.]+/)?(?:p|reels?|tv)/([A-Za-z0-9_-]+)")
+
+
+async def resolve_post(url: str) -> tuple[str, str]:
+    """Instagram post havolasidan media ID topadi: (media_id, permalink). Akkauntlarning oxirgi ~500 ta posti ichidan qidiradi."""
+    m = _POST_RE.search(url or "")
+    if not m:
+        raise IgError("Post havolasi noto'g'ri. Namuna: https://www.instagram.com/p/ABC123/")
+    code = m.group(1)
+    toks = _tokens()
+    if not toks:
+        raise IgError("IGFLOW_TOKEN o'rnatilmagan")
+    async with aiohttp.ClientSession(timeout=_TIMEOUT) as s:
+        for t in toks:
+            after = ""
+            for _ in range(10):
+                params = {"fields": "id,permalink", "limit": "50"}
+                if after:
+                    params["after"] = after
+                try:
+                    data = await _graph(s, "GET", "me/media", t, params=params)
+                except IgError as e:
+                    log.warning("igflow: postlar ro'yxati: %s", e)
+                    break
+                for it in data.get("data") or []:
+                    link = it.get("permalink") or ""
+                    if f"/{code}/" in link or link.rstrip("/").endswith(f"/{code}"):
+                        return str(it["id"]), link or url
+                paging = data.get("paging") or {}
+                after = (paging.get("cursors") or {}).get("after") or ""
+                if not after or not paging.get("next"):
+                    break
+    raise IgError("Post topilmadi (akkauntlaringizning oxirgi ~500 ta postidan qidirildi). Havolani tekshiring.")
 
 
 # ---------- yordamchilar ----------
@@ -226,7 +271,8 @@ async def _on_comment(ig_id: str, v: dict):
         return
     if uid == ig_id:                            # o'z izohimiz
         return
-    rule = match_rule(text, _rules())
+    media_id = str((v.get("media") or {}).get("id") or "")
+    rule = match_rule(text, _rules(), media_id)
     default = _default_reply()
     if not rule and not default:
         return
@@ -265,7 +311,7 @@ async def _on_dm(ig_id: str, ev: dict):
         return
     if mid and not _first_time(f"m:{mid}"):
         return
-    rule = match_rule(text, _rules())
+    rule = match_rule(text, _rules(), dm=True)
     if rule and rule.get("dm"):
         reply, ckey, secs = rule["dm"], f"{ig_id}:{sender}:{rule['id']}", COOLDOWN
     elif _default_dm():
@@ -358,6 +404,9 @@ HELP = (
     "<code>/qoida_qosh kalit1, kalit2 | izohga javob | DM matni</code>\n"
     "Izohga javob yoki DM kerak bo'lmasa, o'rniga <code>-</code> yozing.\n"
     "Misol:\n<code>/qoida_qosh narx, price | Direct'ga yubordik 📩 | Salom! Narxlar: ...</code>\n\n"
+    "📌 <b>Faqat bitta postga:</b> oxiriga post havolasini qo'shing:\n"
+    "<code>/qoida_qosh narx | Direct'ga yubordik 📩 | Narxlar: ... | https://www.instagram.com/p/ABC123/</code>\n"
+    "(Bunday qoida faqat o'sha postdagi izohlarga ishlaydi va umumiy qoidadan ustun turadi.)\n\n"
     "/qoida — qoidalar ro'yxati\n"
     "/qoida_ochir 2 — 2-qoidani o'chirish\n"
     "/dm_avto Matn — kalit so'z topilmagan DM'larga umumiy javob (o'chirish: <code>/dm_avto off</code>)\n"
@@ -378,7 +427,8 @@ async def cmd_rules(m: Message):
         return
     lines = []
     for r in rules:
-        lines.append(f"<b>{r['id']}.</b> 🔑 {html.escape(', '.join(r['kw']))}\n"
+        pin = f"   📌 {html.escape(r.get('post') or 'bitta post')}\n" if r.get("media") else ""
+        lines.append(f"<b>{r['id']}.</b> 🔑 {html.escape(', '.join(r['kw']))}\n{pin}"
                      f"   💬 {html.escape(r.get('reply') or '—')}\n"
                      f"   📩 {html.escape((r.get('dm') or '—')[:150])}")
     dm = _default_dm()
@@ -391,8 +441,9 @@ async def cmd_rules(m: Message):
 @router.message(Command("qoida_qosh"))
 async def cmd_add(m: Message, command: CommandObject):
     parts = [p.strip() for p in (command.args or "").split("|")]
-    if len(parts) != 3 or not parts[0]:
+    if len(parts) not in (3, 4) or not parts[0]:
         await m.answer("Format: <code>/qoida_qosh kalit1, kalit2 | izohga javob | DM matni</code>\n"
+                       "Faqat bitta postga: oxiriga <code>| post havolasi</code> qo'shing.\n"
                        "Kerak bo'lmagan joyga <code>-</code> yozing.")
         return
     kws = [k.strip().lower() for k in parts[0].split(",") if k.strip()]
@@ -401,11 +452,22 @@ async def cmd_add(m: Message, command: CommandObject):
     if not kws or not (reply or dm):
         await m.answer("Kamida bitta kalit so'z va izohga javob yoki DM matni kerak.")
         return
+    rule = {"kw": kws, "reply": reply, "dm": dm}
+    if len(parts) == 4 and parts[3] not in ("", "-"):
+        try:
+            mid, link = await resolve_post(parts[3])
+        except IgError as e:
+            await m.answer(f"❌ {html.escape(str(e))}")
+            return
+        rule["media"] = [mid]
+        rule["post"] = link
     rules = _rules()
     nid = max([r["id"] for r in rules], default=0) + 1
-    rules.append({"id": nid, "kw": kws, "reply": reply, "dm": dm})
+    rule["id"] = nid
+    rules.append(rule)
     _save_rules(rules)
-    await m.answer(f"✅ {nid}-qoida qo'shildi: 🔑 {html.escape(', '.join(kws))}")
+    extra = f"\n📌 Faqat shu postda: {html.escape(rule['post'])}" if rule.get("post") else ""
+    await m.answer(f"✅ {nid}-qoida qo'shildi: 🔑 {html.escape(', '.join(kws))}{extra}")
 
 
 @router.message(Command("qoida_ochir"))
