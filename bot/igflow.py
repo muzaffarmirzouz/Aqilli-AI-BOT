@@ -2,7 +2,8 @@
 
 Nima qiladi:
   • Postga yozilgan izohda kalit so'z bo'lsa — izohga ochiq javob + yozgan odamga DM (comment-to-DM);
-  • DM'ga kalit so'z bo'yicha avtojavob, kalit so'z topilmasa — umumiy avtojavob (ixtiyoriy).
+  • DM'ga kalit so'z bo'yicha avtojavob, kalit so'z topilmasa — umumiy avtojavob (ixtiyoriy);
+  • (ixtiyoriy) kalit so'zi bo'lmagan HAR BIR izohga ham ochiq javob — /izoh_avto (variantlar «||» bilan).
 
 Railway o'zgaruvchilari (mavjud META_* o'zgaruvchilariga TEGMAYDI — avto-post eskicha ishlaydi):
   IGFLOW_TOKEN         — Instagram API (Instagram login) tokeni: Meta → Сценарии использования →
@@ -11,6 +12,7 @@ Railway o'zgaruvchilari (mavjud META_* o'zgaruvchilariga TEGMAYDI — avto-post 
   IGFLOW_APP_SECRET    — «Секрет приложения Instagram» (webhook imzosini tekshirish uchun)
   IGFLOW_VERIFY_TOKEN  — o'zingiz o'ylab topgan matn; Meta'dagi «Verify token» maydoniga ham shuni yozasiz
   IGFLOW_COOLDOWN_MIN  — (ixtiyoriy) bir odamga bir qoida bo'yicha qayta javob berish oralig'i, daqiqada (standart 60)
+  IGFLOW_COMMENT_COOLDOWN_MIN — (ixtiyoriy) /izoh_avto: bir odamga qayta ochiq javob berish oralig'i (standart 360)
   PORT                 — Railway o'zi beradi
 
 Webhook manzili: https://<domen>/ig/webhook  (veb-serverni yandex/skill.py ishga tushiradi, shu yerga ulanadi)
@@ -23,6 +25,7 @@ import html
 import json
 import logging
 import os
+import random
 import time
 from collections import OrderedDict
 
@@ -45,12 +48,15 @@ APP_SECRET = os.getenv("IGFLOW_APP_SECRET", "").strip()
 VERIFY_TOKEN = os.getenv("IGFLOW_VERIFY_TOKEN", "").strip()
 COOLDOWN = int(os.getenv("IGFLOW_COOLDOWN_MIN", "60") or 60) * 60
 DEFAULT_DM_COOLDOWN = 12 * 3600  # umumiy avtojavob: bir odamga 12 soatda bir marta
+# Har bir izohga umumiy ochiq javob: bir odamga qayta javob berish oralig'i (standart 6 soat)
+COMMENT_COOLDOWN = int(os.getenv("IGFLOW_COMMENT_COOLDOWN_MIN", "360") or 360) * 60
 _TIMEOUT = aiohttp.ClientTimeout(total=30)
 _SEEN_LIMIT = 5000
 _ALERT_EVERY = 1800
 
 KV_RULES = "igflow_rules"
 KV_DEFAULT_DM = "igflow_default_dm"
+KV_DEFAULT_REPLY = "igflow_default_reply"
 
 _bot = None
 _tasks: set[asyncio.Task] = set()
@@ -126,6 +132,17 @@ def _save_rules(rules: list[dict]):
 
 def _default_dm() -> str:
     return (db.kv_get(KV_DEFAULT_DM) or "").strip()
+
+
+def _default_reply() -> str:
+    """Kalit so'zi bo'lmagan izohlarga ochiq javob. Bir nechta variant «||» bilan ajratiladi."""
+    return (db.kv_get(KV_DEFAULT_REPLY) or "").strip()
+
+
+def _pick(text: str) -> str:
+    """«A || B || C» ko'rinishidagi matndan tasodifiy bittasini tanlaydi (bir xil matn takrorlanmasligi uchun)."""
+    variants = [v.strip() for v in text.split("||") if v.strip()]
+    return random.choice(variants) if variants else ""
 
 
 def match_rule(text: str, rules: list[dict]) -> dict | None:
@@ -210,15 +227,23 @@ async def _on_comment(ig_id: str, v: dict):
     if uid == ig_id:                            # o'z izohimiz
         return
     rule = match_rule(text, _rules())
-    if not rule or not _first_time(f"c:{cid}"):
+    default = _default_reply()
+    if not rule and not default:
         return
-    ckey = f"{ig_id}:{uid}:{rule['id']}"
-    send_dm = bool(rule.get("dm")) and _cooldown_ok(ckey, COOLDOWN)
+    if not _first_time(f"c:{cid}"):
+        return
+    # Ochiq javob: qoidadagi matn; qoidada u bo'lmasa yoki qoida mos kelmasa — umumiy javob (bir odamga cooldown bilan)
+    reply = (rule or {}).get("reply") or ""
+    if not reply and default and _cooldown_ok(f"{ig_id}:{uid}:creply", COMMENT_COOLDOWN):
+        reply = _pick(default)
+    send_dm = bool(rule and rule.get("dm")) and _cooldown_ok(f"{ig_id}:{uid}:{rule['id']}", COOLDOWN)
+    if not reply and not send_dm:
+        return
     async with aiohttp.ClientSession(timeout=_TIMEOUT) as s:
         token = await _token_for(s, ig_id)
-        if rule.get("reply"):
+        if reply:
             try:
-                await _reply_comment(s, token, cid, rule["reply"])
+                await _reply_comment(s, token, cid, reply)
             except Exception as e:
                 log.warning("igflow: izohga javob: %s", e)
                 await _alert(f"⚠️ Instagram izohiga javob bermadi: {html.escape(str(e))[:200]}")
@@ -336,6 +361,9 @@ HELP = (
     "/qoida — qoidalar ro'yxati\n"
     "/qoida_ochir 2 — 2-qoidani o'chirish\n"
     "/dm_avto Matn — kalit so'z topilmagan DM'larga umumiy javob (o'chirish: <code>/dm_avto off</code>)\n"
+    "/izoh_avto Matn — <b>har bir</b> izohga (kalit so'zsiz ham) ochiq javob. Bir nechta variant: "
+    "<code>/izoh_avto Rahmat! 🙏 || Fikringiz uchun rahmat 😊 || Qo'llab-quvvatlaganingiz uchun rahmat ❤️</code> "
+    "(o'chirish: <code>/izoh_avto off</code>)\n"
     "/igflow — holatni tekshirish"
 )
 
@@ -344,7 +372,9 @@ HELP = (
 async def cmd_rules(m: Message):
     rules = _rules()
     if not rules:
-        await m.answer("Qoidalar yo'q.\n\n" + HELP)
+        dr = _default_reply()
+        await m.answer("Qoidalar yo'q.\n"
+                       f"💬 Har bir izohga javob: {html.escape(dr[:150]) if dr else 'o‘chiq'}\n\n" + HELP)
         return
     lines = []
     for r in rules:
@@ -352,7 +382,9 @@ async def cmd_rules(m: Message):
                      f"   💬 {html.escape(r.get('reply') or '—')}\n"
                      f"   📩 {html.escape((r.get('dm') or '—')[:150])}")
     dm = _default_dm()
-    lines.append(f"\n🤖 Umumiy DM javobi: {html.escape(dm[:150]) if dm else 'o‘chiq'}")
+    dr = _default_reply()
+    lines.append(f"\n🤖 Umumiy DM javobi: {html.escape(dm[:150]) if dm else 'o‘chiq'}\n"
+                 f"💬 Har bir izohga javob: {html.escape(dr[:150]) if dr else 'o‘chiq'}")
     await m.answer("\n\n".join(lines))
 
 
@@ -404,13 +436,36 @@ async def cmd_default_dm(m: Message, command: CommandObject):
     await m.answer("✅ Umumiy DM javobi o'rnatildi (bir odamga 12 soatda bir marta yuboriladi).")
 
 
+@router.message(Command("izoh_avto"))
+async def cmd_default_reply(m: Message, command: CommandObject):
+    arg = (command.args or "").strip()
+    if not arg:
+        dr = _default_reply()
+        await m.answer(f"Har bir izohga javob: {html.escape(dr) if dr else 'o‘chiq'}\n"
+                       "O'rnatish: <code>/izoh_avto Matn</code> (bir nechta variant: <code>A || B || C</code>), "
+                       "o'chirish: <code>/izoh_avto off</code>")
+        return
+    if arg.lower() == "off":
+        db.kv_set(KV_DEFAULT_REPLY, "")
+        await m.answer("Har bir izohga javob o'chirildi.")
+        return
+    if not _pick(arg):
+        await m.answer("Javob matni bo'sh. Misol: <code>/izoh_avto Rahmat! 🙏</code>")
+        return
+    db.kv_set(KV_DEFAULT_REPLY, arg)
+    n = len([v for v in arg.split("||") if v.strip()])
+    mins = COMMENT_COOLDOWN // 60
+    await m.answer(f"✅ Har bir izohga ochiq javob yoqildi ({n} ta variant). Bir odamga {mins} daqiqada bir marta "
+                   "javob beriladi. Kalit so'zli qoidalar avvalgidek ishlaydi.")
+
+
 @router.message(Command("igflow"))
 async def cmd_status(m: Message):
     domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
     url = f"https://{domain}{PATH}" if domain else f"https://&lt;domen&gt;{PATH}"
     lines = [f"🌐 Webhook: <code>{url}</code>",
              f"🔐 IGFLOW_APP_SECRET: {'✅' if APP_SECRET else '❌'}   IGFLOW_VERIFY_TOKEN: {'✅' if VERIFY_TOKEN else '❌'}",
-             f"📋 Qoidalar: {len(_rules())} ta"]
+             f"📋 Qoidalar: {len(_rules())} ta   💬 Har bir izohga javob: {'✅' if _default_reply() else 'o‘chiq'}"]
     toks = _tokens()
     if not toks:
         lines.append("❌ IGFLOW_TOKEN o'rnatilmagan")
