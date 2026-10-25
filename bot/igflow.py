@@ -74,13 +74,76 @@ class IgError(Exception):
 
 # ---------- tokenlar ----------
 
+_ENV_TOKENS = ("IGFLOW_TOKEN", "IGFLOW_TOKEN_2", "IGFLOW_TOKEN_3")
+REFRESH_EVERY = 7 * 86400      # token har 7 kunda yangilanadi (Instagram tokeni 60 kun yashaydi)
+
+
+def _tok_state(name: str) -> dict:
+    try:
+        return json.loads(db.kv_get(f"igflow_tok_{name}") or "{}")
+    except Exception:
+        return {}
+
+
 def _tokens() -> list[str]:
+    """Railway'dagi tokenlar; avtomatik yangilangan bo'lsa — yangisi (env'dagi token o'zgarmagan bo'lsa)."""
     out = []
-    for name in ("IGFLOW_TOKEN", "IGFLOW_TOKEN_2", "IGFLOW_TOKEN_3"):
+    for name in _ENV_TOKENS:
         v = os.getenv(name, "").strip()
-        if v:
-            out.append(v)
+        if not v:
+            continue
+        st = _tok_state(name)
+        if st.get("src") == hashlib.sha256(v.encode()).hexdigest() and st.get("tok"):
+            v = st["tok"]
+        out.append(v)
     return out
+
+
+async def refresh_tokens(force: bool = False) -> tuple[int, list[str]]:
+    """Muddati yaqinlashgan tokenlarni yangilaydi. Qaytaradi: (yangilanganlar soni, xatolar)."""
+    done, errs = 0, []
+    async with aiohttp.ClientSession(timeout=_TIMEOUT) as s:
+        for name in _ENV_TOKENS:
+            env = os.getenv(name, "").strip()
+            if not env:
+                continue
+            src = hashlib.sha256(env.encode()).hexdigest()
+            st = _tok_state(name)
+            if st.get("src") != src:
+                st = {"src": src, "tok": env, "at": 0}
+            if not force and time.time() - float(st.get("at") or 0) < REFRESH_EVERY:
+                continue
+            try:
+                async with s.get("https://graph.instagram.com/refresh_access_token",
+                                 params={"grant_type": "ig_refresh_token", "access_token": st["tok"]}) as r:
+                    data = await r.json(content_type=None)
+                new = data.get("access_token") if isinstance(data, dict) else None
+                if not new:
+                    err = (data or {}).get("error", {}) if isinstance(data, dict) else {}
+                    raise IgError(f"{err.get('message') or data} (kod {err.get('code')})")
+            except Exception as e:
+                errs.append(f"{name}: {e}")
+                log.warning("igflow: %s yangilanmadi: %s", name, e)
+                continue
+            db.kv_set(f"igflow_tok_{name}", json.dumps({"src": src, "tok": new, "at": time.time()}))
+            done += 1
+    if done:
+        _acc_token.clear()   # ig_id -> token xaritasi qayta tuziladi
+    return done, errs
+
+
+async def _refresher():
+    """Har 12 soatda tekshiradi; xato bo'lsa adminga xabar beradi."""
+    await asyncio.sleep(60)
+    while True:
+        try:
+            _, errs = await refresh_tokens()
+            if errs:
+                await _alert("⚠️ Instagram tokenini yangilab bo'lmadi:\n" + "\n".join(errs[:3]) +
+                             "\nToken muddati tugamasdan Railway'da IGFLOW_TOKEN'ni qo'lda yangilang.")
+        except Exception:
+            log.exception("igflow: token yangilash")
+        await asyncio.sleep(12 * 3600)
 
 
 async def _graph(session, method: str, path: str, token: str, **kw):
@@ -391,6 +454,10 @@ def setup(bot):
     """Xatolar haqida adminlarga xabar berish uchun botni eslab qoladi."""
     global _bot
     _bot = bot
+    try:
+        asyncio.get_running_loop().create_task(_refresher())
+    except RuntimeError:
+        pass
 
 
 # ---------- Telegram buyruqlari (faqat adminlar) ----------
@@ -413,6 +480,7 @@ HELP = (
     "/izoh_avto Matn — <b>har bir</b> izohga (kalit so'zsiz ham) ochiq javob. Bir nechta variant: "
     "<code>/izoh_avto Rahmat! 🙏 || Fikringiz uchun rahmat 😊 || Qo'llab-quvvatlaganingiz uchun rahmat ❤️</code> "
     "(o'chirish: <code>/izoh_avto off</code>)\n"
+    "/token_yangila — Instagram tokenini hozir yangilash (o'zi ham har 7 kunda yangilanadi)\n"
     "/igflow — holatni tekshirish"
 )
 
@@ -468,6 +536,15 @@ async def cmd_add(m: Message, command: CommandObject):
     _save_rules(rules)
     extra = f"\n📌 Faqat shu postda: {html.escape(rule['post'])}" if rule.get("post") else ""
     await m.answer(f"✅ {nid}-qoida qo'shildi: 🔑 {html.escape(', '.join(kws))}{extra}")
+
+
+@router.message(Command("token_yangila"))
+async def cmd_refresh(m: Message):
+    done, errs = await refresh_tokens(force=True)
+    txt = f"🔄 Yangilandi: {done} ta token (yana 60 kun)."
+    if errs:
+        txt += "\n❌ " + html.escape("\n".join(errs[:3]))
+    await m.answer(txt)
 
 
 @router.message(Command("qoida_ochir"))
