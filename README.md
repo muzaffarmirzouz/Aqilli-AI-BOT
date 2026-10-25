@@ -194,4 +194,6 @@ webhook manzili: `https://<domen>/ig/webhook`. Mavjud `META_*` o'zgaruvchilari v
   kiritiladi, `comments` va `messages` maydonlariga obuna bo'linadi, akkaunt yonidagi «Подписка на Webhooks» yoqiladi.
 - Admin buyruqlari (Telegram): `/igflow` (holat), `/qoida` (ro'yxat),
   `/qoida_qosh kalit1, kalit2 | izohga javob | DM matni` (kerak bo'lmasa `-`), `/qoida_ochir N`, `/dm_avto Matn|off`.
+  Har bir izohga (kalit so'zsiz ham) ochiq javob: `/izoh_avto Matn` yoki variantlar bilan `/izoh_avto A || B || C`, o'chirish `/izoh_avto off`
+  (bir odamga qayta javob oralig'i: `IGFLOW_COMMENT_COOLDOWN_MIN`, standart 360 daqiqa).
 - Webhook imzosi (`X-Hub-Signature-256`) tekshiriladi; `IGFLOW_APP_SECRET` bo'lmasa so'rovlar rad etiladi.
