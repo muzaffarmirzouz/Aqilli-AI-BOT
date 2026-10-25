@@ -237,10 +237,17 @@ async def weather(m: Message):
 @pm.message(Command("kurs"))
 async def rates(m: Message):
     t = today()
-    now_r = await sources.get_rates(t)
-    msg = texts.rates_block(now_r, "Bugungi valyuta kursi")
     tom = t + timedelta(days=1)
-    tom_r = await sources.get_rates(tom)
+    try:
+        now_r, tom_r = await asyncio.wait_for(
+            asyncio.gather(sources.get_rates(t), sources.get_rates(tom)), timeout=40)
+    except Exception:
+        return await m.answer("⚠️ Valyuta kursi hozircha olinmadi (Markaziy bank sayti javob bermayapti). "
+                              "Birozdan keyin qayta urinib ko'ring.")
+    if not now_r:
+        return await m.answer("⚠️ Valyuta kursi hozircha olinmadi (Markaziy bank sayti javob bermayapti). "
+                              "Birozdan keyin qayta urinib ko'ring.")
+    msg = texts.rates_block(now_r, "Bugungi valyuta kursi")
     if tom_r and tom_r.get("USD", {}).get("date") == tom.strftime("%d.%m.%Y"):
         msg += "\n\n" + texts.rates_block(tom_r, "Ertangi valyuta kursi")
     else:
