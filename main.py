@@ -8,7 +8,7 @@ from aiogram.types import BotCommand
 
 from bot.config import BOT_TOKEN
 from bot.handlers import offer_site_article, router
-from bot import meta, namoz_xabar, site
+from bot import igflow, meta, namoz_xabar, site
 from yandex import kolonka
 from bot.jobs import notify_admins
 from bot.jobs import scheduler
@@ -27,6 +27,8 @@ async def main():
     dp.callback_query.outer_middleware(SubscribeMiddleware())
     dp.include_router(kolonka.router)  # 🔊 Yandex kolonka (matn kutayotganda ustun turadi)
     dp.include_router(namoz_xabar.router)  # 🕌 namoz vaqtida Telegram xabari
+    dp.include_router(igflow.router)  # 📩 Instagram avtomatlashtirish buyruqlari (faqat adminlar)
+    igflow.setup(bot)
     dp.include_router(router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Bosh menyu"),

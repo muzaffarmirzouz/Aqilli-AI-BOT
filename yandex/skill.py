@@ -88,6 +88,11 @@ async def serve():
     app = web.Application()
     app.router.add_post(PATH, _handle)
     app.router.add_get("/", _health)
+    try:  # 📩 Instagram webhook (bot/igflow.py) shu server orqali ishlaydi
+        from bot import igflow
+        igflow.register(app)
+    except Exception:
+        log.exception("igflow webhook ulanmadi — Alisa ko'nikmasi ishlashda davom etadi")
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", int(port)).start()

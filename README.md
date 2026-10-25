@@ -183,3 +183,15 @@ Boshqa foydalanuvchilar uchun ko'nikmani Dialogs'da moderatsiyaga yuborib, e'lon
 Telegram'ga bir marta yuklanadi, keyin file_id bilan yuboriladi).
 - Foydalanuvchi o'zi yoqadi: «🕌 Namoz vaqtlari» → «🕌 Namoz vaqtida xabar» yoki `/eslatma` (standart: o'chiq). Faqat majburiy obunachilarga.
 - Vaqtlar — botdagi jadvaldan (kolonka, poster va 21:00 xabari bilan bir xil). Admin: `/eslatma_stat`.
+
+## 📩 Instagram avtomatlashtirish (Manychat o'rniga)
+`bot/igflow.py` — izohga javob + DM (comment-to-DM) va DM'ga avtojavob. Veb-server `yandex/skill.py` bilan bir (PORT),
+webhook manzili: `https://<domen>/ig/webhook`. Mavjud `META_*` o'zgaruvchilari va avto-post'ga tegmaydi.
+- Railway: `IGFLOW_TOKEN` (Instagram login tokeni; 2-3-akkaunt: `IGFLOW_TOKEN_2`, `IGFLOW_TOKEN_3`),
+  `IGFLOW_APP_SECRET` («Секрет приложения Instagram»), `IGFLOW_VERIFY_TOKEN` (o'zingiz o'ylagan matn),
+  ixtiyoriy `IGFLOW_COOLDOWN_MIN` (standart 60 — bir odamga bir qoida bo'yicha qayta javob oralig'i).
+- Meta → Сценарии использования → «Настройка API для входа в Instagram» → Webhooks: Callback URL va Verify token
+  kiritiladi, `comments` va `messages` maydonlariga obuna bo'linadi, akkaunt yonidagi «Подписка на Webhooks» yoqiladi.
+- Admin buyruqlari (Telegram): `/igflow` (holat), `/qoida` (ro'yxat),
+  `/qoida_qosh kalit1, kalit2 | izohga javob | DM matni` (kerak bo'lmasa `-`), `/qoida_ochir N`, `/dm_avto Matn|off`.
+- Webhook imzosi (`X-Hub-Signature-256`) tekshiriladi; `IGFLOW_APP_SECRET` bo'lmasa so'rovlar rad etiladi.
