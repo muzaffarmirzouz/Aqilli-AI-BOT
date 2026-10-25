@@ -171,27 +171,58 @@ async def get_weather(region: str) -> dict:
 
 
 # ======================= VALYUTA (Markaziy bank) =======================
+_RATE_TIMEOUT = aiohttp.ClientTimeout(total=8)
+
+
+async def _fetch_json(url: str):
+    """Bitta qisqa urinish (qayta urinish va uzoq kutish yo'q)."""
+    async with aiohttp.ClientSession(timeout=_RATE_TIMEOUT, headers=_HEADERS) as s:
+        async with s.get(url) as r:
+            r.raise_for_status()
+            return await r.json(content_type=None)
+
+
+async def _cbu_rate(ccy: str, ds: str):
+    try:
+        j = await _fetch_json(f"https://cbu.uz/uz/arkhiv-kursov-valyut/json/{ccy}/{ds}/")
+        it = j[0] if isinstance(j, list) else j
+        return ccy, {
+            "rate": float(it["Rate"]),
+            "diff": float(it.get("Diff") or 0),
+            "date": it.get("Date", ""),  # "07.10.2026" — kurs amal qiladigan sana
+        }
+    except Exception as e:
+        log.warning("kurs olinmadi %s: %s %r", ccy, ds, e)
+        return ccy, None
+
+
+async def _nbu_rates() -> dict:
+    """Zaxira: nbu.uz ro'yxatidagi Markaziy bank kursi (cb_price) — faqat bugungi kun uchun."""
+    out = {}
+    try:
+        j = await _fetch_json("https://nbu.uz/en/exchange-rates/json/")
+        for it in j:
+            ccy = str(it.get("code", "")).upper()
+            if ccy in ("USD", "EUR", "RUB") and it.get("cb_price"):
+                out[ccy] = {"rate": float(it["cb_price"]), "diff": 0.0,
+                            "date": str(it.get("date", ""))[:10]}
+    except Exception as e:
+        log.warning("zaxira kurs (nbu.uz) olinmadi: %r", e)
+    return out
+
+
 async def get_rates(d: date | None = None) -> dict:
-    """CBU kursi. d berilsa — shu sanaga belgilangan kurs (e'lon qilingan bo'lsa)."""
+    """CBU kursi. d berilsa — shu sanaga belgilangan kurs (e'lon qilingan bo'lsa).
+    cbu.uz ishlamasa, bugungi kun uchun nbu.uz'dagi MB kursi olinadi."""
     ds = (d or date.today()).isoformat()
     key = f"r:{ds}"
     hit = _cache.get(key)
-    if hit and time.time() - hit[0] < 1200:
+    if hit and time.time() - hit[0] < (1200 if hit[1] else 90):
         return hit[1]
-    out = {}
-    for ccy in ("USD", "EUR", "RUB"):
-        try:
-            j = await _get_json(f"https://cbu.uz/uz/arkhiv-kursov-valyut/json/{ccy}/{ds}/")
-            it = j[0] if isinstance(j, list) else j
-            out[ccy] = {
-                "rate": float(it["Rate"]),
-                "diff": float(it.get("Diff") or 0),
-                "date": it.get("Date", ""),  # "07.10.2026" — kurs amal qiladigan sana
-            }
-        except Exception as e:
-            log.warning("kurs olinmadi %s: %s", ccy, e)
-    if out:
-        _cache[key] = (time.time(), out)
+    out = {c: v for c, v in await asyncio.gather(*(_cbu_rate(c, ds) for c in ("USD", "EUR", "RUB"))) if v}
+    if not out and ds == date.today().isoformat():
+        out = await _nbu_rates()
+    _cache[key] = (time.time(), out)   # bo'sh natija 90 soniya eslab qolinadi (bot qotib qolmasligi uchun)
     return out
 
 
