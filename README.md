@@ -196,5 +196,6 @@ webhook manzili: `https://<domen>/ig/webhook`. Mavjud `META_*` o'zgaruvchilari v
   `/qoida_qosh kalit1, kalit2 | izohga javob | DM matni` (kerak bo'lmasa `-`), `/qoida_ochir N`, `/dm_avto Matn|off`.
   Har bir izohga (kalit so'zsiz ham) ochiq javob: `/izoh_avto Matn` yoki variantlar bilan `/izoh_avto A || B || C`, o'chirish `/izoh_avto off`
   Faqat bitta postga: qoida oxiriga post havolasini qo'shing — `/qoida_qosh narx | Javob | DM matni | https://www.instagram.com/p/ABC123/` (shu postdagi izohlarga ishlaydi, umumiy qoidadan ustun)
+  Token avtomatik yangilanadi (har 7 kunda, bazada saqlanadi); qo'lda: `/token_yangila`. Xato bo'lsa adminga xabar keladi.
   (bir odamga qayta javob oralig'i: `IGFLOW_COMMENT_COOLDOWN_MIN`, standart 360 daqiqa).
 - Webhook imzosi (`X-Hub-Signature-256`) tekshiriladi; `IGFLOW_APP_SECRET` bo'lmasa so'rovlar rad etiladi.
