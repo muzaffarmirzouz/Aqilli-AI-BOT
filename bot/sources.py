@@ -226,6 +226,40 @@ async def _cbu_all() -> dict:
     return out
 
 
+_INTL = (
+    ("open.er-api.com", "https://open.er-api.com/v6/latest/USD"),
+    ("jsdelivr (fawazahmed0)", "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json"),
+)
+
+
+def _intl_parse(j: dict) -> dict:
+    """USD asosidagi kurslardan so'mdagi USD/EUR/RUB ni hisoblaydi."""
+    r = j.get("rates") or j.get("usd") or {}
+    r = {k.upper(): float(v) for k, v in r.items() if isinstance(v, (int, float))}
+    uzs = r.get("UZS")
+    if not uzs:
+        return {}
+    ds = _today_tz().strftime("%d.%m.%Y")
+    out = {"USD": {"rate": round(uzs, 2), "diff": 0.0, "date": ds, "src": "xalqaro"}}
+    for c in ("EUR", "RUB"):
+        if r.get(c):
+            out[c] = {"rate": round(uzs / r[c], 2), "diff": 0.0, "date": ds, "src": "xalqaro"}
+    return out
+
+
+async def _intl_rates() -> dict:
+    """Oxirgi zaxira: xalqaro manbalar (O'zbekiston saytlari server uchun yopiq bo'lsa).
+    Markaziy bank kursiga yaqin, lekin aynan bir xil emas — matnda «xalqaro kurs» deb ko'rsatiladi."""
+    for name, url in _INTL:
+        try:
+            out = _intl_parse(await _fetch_json(url))
+            if out:
+                return out
+        except Exception as e:
+            log.warning("zaxira kurs (%s) olinmadi: %r", name, e)
+    return {}
+
+
 def _today_tz() -> date:
     from .config import TZ
     from datetime import datetime
@@ -258,12 +292,21 @@ async def get_rates(d: date | None = None, fallback_last: bool = False) -> dict:
     ds = (d or today).isoformat()
     key = f"r:{ds}"
     hit = _cache.get(key)
-    if hit and time.time() - hit[0] < (1200 if hit[1] else 90):
+    from . import kurs_push
+    pushed = kurs_push.get(ds, kurs_push.FRESH_SEC)
+    hit_intl = bool(hit and any(v.get("src") == "xalqaro" for v in (hit[1] or {}).values()))
+    if hit and time.time() - hit[0] < (1200 if hit[1] else 90) and not (pushed and hit_intl):
         out = hit[1]
+    elif pushed:
+        # O'zbekistondagi kompyuter yaqinda yuborgan MB kursi — cbu.uz'ga urinib o'tirmaymiz
+        out = kurs_push.get(ds)
+        _cache[key] = (time.time(), out)
     else:
         out = {c: v for c, v in await asyncio.gather(*(_cbu_rate(c, ds) for c in ("USD", "EUR", "RUB"))) if v}
+        if not out:
+            out = kurs_push.get(ds)  # kompyuterdan kelgan (eskiroq bo'lsa ham) MB kursi
         if not out and ds == today.isoformat():
-            out = await _cbu_all() or await _nbu_rates()
+            out = await _cbu_all() or await _nbu_rates() or await _intl_rates()
         _cache[key] = (time.time(), out)   # bo'sh natija 90 soniya eslab qolinadi (bot qotib qolmasligi uchun)
         if out and ds == today.isoformat():
             _remember(out)
@@ -280,6 +323,7 @@ async def diagnose_rates() -> str:
         ("cbu.uz (sana bo'yicha)", f"https://cbu.uz/uz/arkhiv-kursov-valyut/json/USD/{ds}/"),
         ("cbu.uz (umumiy)", "https://cbu.uz/uz/arkhiv-kursov-valyut/json/"),
         ("nbu.uz (zaxira)", "https://nbu.uz/en/exchange-rates/json/"),
+        *((f"{n} (xalqaro)", u) for n, u in _INTL),
     )
     for name, url in checks:
         t = time.time()
@@ -289,6 +333,8 @@ async def diagnose_rates() -> str:
             lines.append(f"✅ {name} — {time.time() - t:.1f} s, {n} ta yozuv")
         except Exception as e:
             lines.append(f"❌ {name} — {type(e).__name__}: {str(e)[:120]}")
+    from . import kurs_push
+    lines.append(kurs_push.status())
     last = last_known_rates().get("USD")
     lines.append(f"\n🗂 Oxirgi saqlangan kurs: " + (f"1 USD = {last['rate']} ({last.get('date', '')})" if last else "yo'q"))
     return "\n".join(lines)

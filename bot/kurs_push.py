@@ -96,6 +96,12 @@ async def _push(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": "bad json"}, status=400)
     saved = save(payload)
     log.info("kurs push: %s", saved)
+    try:  # eski (xalqaro) kursni xotiradan o'chiramiz — yangi MB kursi darhol ishlatilsin
+        from . import sources
+        for iso in saved:
+            sources._cache.pop(f"r:{iso}", None)
+    except Exception:
+        pass
     return web.json_response({"ok": bool(saved), "saved": saved})
 
 
