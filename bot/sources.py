@@ -211,19 +211,87 @@ async def _nbu_rates() -> dict:
     return out
 
 
-async def get_rates(d: date | None = None) -> dict:
+async def _cbu_all() -> dict:
+    """Zaxira: cbu.uz'ning sanasiz umumiy ro'yxati (eng so'nggi kurslar)."""
+    out = {}
+    try:
+        j = await _fetch_json("https://cbu.uz/uz/arkhiv-kursov-valyut/json/")
+        for it in j:
+            ccy = str(it.get("Ccy", "")).upper()
+            if ccy in ("USD", "EUR", "RUB"):
+                out[ccy] = {"rate": float(it["Rate"]), "diff": float(it.get("Diff") or 0),
+                            "date": it.get("Date", "")}
+    except Exception as e:
+        log.warning("zaxira kurs (cbu.uz umumiy) olinmadi: %r", e)
+    return out
+
+
+def _today_tz() -> date:
+    from .config import TZ
+    from datetime import datetime
+    return datetime.now(TZ).date()
+
+
+def _remember(out: dict):
+    """Oxirgi muvaffaqiyatli olingan kursni bazaga yozamiz (manbalar ishlamay qolsa — shu ishlatiladi)."""
+    try:
+        import json
+        db.kv_set("rates_last", json.dumps(out, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def last_known_rates() -> dict:
+    try:
+        import json
+        v = db.kv_get("rates_last")
+        return json.loads(v) if v else {}
+    except Exception:
+        return {}
+
+
+async def get_rates(d: date | None = None, fallback_last: bool = False) -> dict:
     """CBU kursi. d berilsa — shu sanaga belgilangan kurs (e'lon qilingan bo'lsa).
-    cbu.uz ishlamasa, bugungi kun uchun nbu.uz'dagi MB kursi olinadi."""
-    ds = (d or date.today()).isoformat()
+    cbu.uz ishlamasa — cbu.uz umumiy ro'yxati, keyin nbu.uz (faqat bugungi kun uchun).
+    fallback_last=True bo'lsa va hech biri javob bermasa — oxirgi ma'lum kurs qaytadi."""
+    today = _today_tz()
+    ds = (d or today).isoformat()
     key = f"r:{ds}"
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < (1200 if hit[1] else 90):
-        return hit[1]
-    out = {c: v for c, v in await asyncio.gather(*(_cbu_rate(c, ds) for c in ("USD", "EUR", "RUB"))) if v}
-    if not out and ds == date.today().isoformat():
-        out = await _nbu_rates()
-    _cache[key] = (time.time(), out)   # bo'sh natija 90 soniya eslab qolinadi (bot qotib qolmasligi uchun)
+        out = hit[1]
+    else:
+        out = {c: v for c, v in await asyncio.gather(*(_cbu_rate(c, ds) for c in ("USD", "EUR", "RUB"))) if v}
+        if not out and ds == today.isoformat():
+            out = await _cbu_all() or await _nbu_rates()
+        _cache[key] = (time.time(), out)   # bo'sh natija 90 soniya eslab qolinadi (bot qotib qolmasligi uchun)
+        if out and ds == today.isoformat():
+            _remember(out)
+    if not out and fallback_last:
+        return last_known_rates()
     return out
+
+
+async def diagnose_rates() -> str:
+    """Har bir kurs manbasini alohida tekshiradi (admin uchun)."""
+    ds = _today_tz().isoformat()
+    lines = [f"💵 <b>Kurs manbalarini tekshirish</b> ({ds})"]
+    checks = (
+        ("cbu.uz (sana bo'yicha)", f"https://cbu.uz/uz/arkhiv-kursov-valyut/json/USD/{ds}/"),
+        ("cbu.uz (umumiy)", "https://cbu.uz/uz/arkhiv-kursov-valyut/json/"),
+        ("nbu.uz (zaxira)", "https://nbu.uz/en/exchange-rates/json/"),
+    )
+    for name, url in checks:
+        t = time.time()
+        try:
+            j = await _fetch_json(url)
+            n = len(j) if isinstance(j, list) else 1
+            lines.append(f"✅ {name} — {time.time() - t:.1f} s, {n} ta yozuv")
+        except Exception as e:
+            lines.append(f"❌ {name} — {type(e).__name__}: {str(e)[:120]}")
+    last = last_known_rates().get("USD")
+    lines.append(f"\n🗂 Oxirgi saqlangan kurs: " + (f"1 USD = {last['rate']} ({last.get('date', '')})" if last else "yo'q"))
+    return "\n".join(lines)
 
 
 def tomorrow(today: date) -> date:

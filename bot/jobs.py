@@ -30,7 +30,7 @@ async def collect(region: str, d: date) -> dict:
     except Exception as e:
         log.warning("ob-havo %s: %s", region, e)
         w = None
-    rates = await sources.get_rates(d)
+    rates = await sources.get_rates(d) or sources.last_known_rates()
     usd_date = rates.get("USD", {}).get("date", "")
     rates_for_d = usd_date == d.strftime("%d.%m.%Y")
     return {"rec": rec, "w": w, "rates": rates, "rates_for_d": rates_for_d}

@@ -1029,7 +1029,7 @@ async def _send_news(bot: Bot, uid: int, st: dict, intro: str = ""):
     src = await _src_bytes(bot, st)
     usd = None
     try:  # bugungi Markaziy bank kursi (20 daqiqa keshlanadi)
-        usd = (await sources.get_rates(today())).get("USD", {}).get("rate")
+        usd = (await sources.get_rates(today(), fallback_last=True)).get("USD", {}).get("rate")
     except Exception:
         pass
     img = await asyncio.to_thread(news.render_news, src, st["text"], st["style"], st["fmt"],
@@ -1460,6 +1460,12 @@ async def a_promo(m: Message, command: CommandObject):
     await m.answer(f"✅ Saqlandi. Endi shunday chiqadi:\n\n{jobs.promo_block()}", disable_web_page_preview=True)
 
 
+@admin.message(Command("kurs_tekshir"))
+async def a_rates_diag(m: Message):
+    await m.answer("⏳ Tekshirilmoqda…")
+    await m.answer(await sources.diagnose_rates())
+
+
 @admin.message(Command("admin"))
 async def a_help(m: Message):
     await m.answer(
@@ -1472,6 +1478,7 @@ async def a_help(m: Message):
         "/kolonka_cookie — QR ishlamasa, cookie bilan ulash (zaxira)\n"
         "/eslatma_stat — namoz vaqtida xabar oluvchilar soni\n"
         "/reklama matn — ob-havo va kurs ostidagi @Aqilli_AI_Bot reklamasini o'zgartirish\n"
+        "/kurs_tekshir — kurs manbalari (cbu.uz, nbu.uz) ishlayaptimi\n"
         "/stat yoki /statistika — umumiy statistika (foydalanuvchilar, faollik, xizmatlar, majburiy obuna holati)\n"
         "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
         "/meta — Facebook va Instagram ulanishini tekshirish\n"
