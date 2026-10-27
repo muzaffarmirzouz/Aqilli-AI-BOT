@@ -186,17 +186,34 @@ def _media(items, caption: str):
     return media
 
 
+# Kanal postlari ostidagi bot havolasi (barcha kanallarda bir xil)
+CHANNEL_PROMO = {
+    "namoz": "Kunlik namoz vaqtlari",
+    "obhavo": "Kunlik ob-havo ma'lumotlari",
+    "kurs": "Kunlik valyuta kurslarini kuzatib boring",
+}
+
+
+def channel_promo(item: str) -> str:
+    if not PROMO_BOT:
+        return ""
+    u = PROMO_BOT.lstrip("@")
+    return f"🤖 <a href=\"https://t.me/{u}\">@{u}</a> — {CHANNEL_PROMO[item]}"
+
+
 def channel_caption(region: str, d: date, data: dict, username: str | None) -> str:
     wd = (data["w"] or {}).get("days", {}).get(d.isoformat())
-    lines = [f"🕌 <b>{texts.dstr(d).capitalize()} — {region_name(region)} namoz vaqtlari</b>"]
+    when = "Ertangi namoz vaqtlari" if d > now().date() else "Namoz vaqtlari"
+    lines = [f"🕌 <b>{when} — {texts.dstr(d)}</b>\n📍 {region_name(region)}"]
     if wd:
         ic, t = sources.wmo(wd["code"])
         lines.append(f"{ic} Ob-havo: {wd['tmin']:+d}° … {wd['tmax']:+d}°, {t.lower()}")
     usd = data["rates"].get("USD")
     if usd:
         lines.append(f"💵 1 USD = {texts.money(usd['rate'])} so'm (MB, {usd['date']})")
-    if username:
-        lines.append(f"\n👉 @{username}")
+    p = channel_promo("namoz")
+    if p:
+        lines.append(f"\n{p}")
     return "\n".join(lines)
 
 
@@ -467,8 +484,8 @@ async def send_item(bot: Bot, item: str, hhmm: str, users, chats) -> tuple[int, 
             if img is None:
                 continue
             cap = f"💵 <b>{title} — {texts.dstr(rd)}</b>"
-        if item != "namoz" and c["username"]:
-            cap += f"\n\n👉 @{c['username']}"
+        if item != "namoz" and channel_promo(item):
+            cap += f"\n\n{channel_promo(item)}"
         m = await _safe(lambda: bot.send_photo(c["id"], BufferedInputFile(img, f"{item}.jpg"), caption=cap),
                         on_forbidden=lambda cid=c["id"]: db.set_chat(cid, active=0))
         sent_c += bool(m)
