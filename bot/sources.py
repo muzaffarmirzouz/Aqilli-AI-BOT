@@ -171,6 +171,7 @@ async def get_weather(region: str) -> dict:
 
 
 # ======================= VALYUTA (Markaziy bank) =======================
+CCYS = ("USD", "RUB", "EUR", "CNY", "KZT")  # ko'rsatiladigan valyutalar (tartibi bilan)
 _RATE_TIMEOUT = aiohttp.ClientTimeout(total=8)
 
 
@@ -203,7 +204,7 @@ async def _nbu_rates() -> dict:
         j = await _fetch_json("https://nbu.uz/en/exchange-rates/json/")
         for it in j:
             ccy = str(it.get("code", "")).upper()
-            if ccy in ("USD", "EUR", "RUB") and it.get("cb_price"):
+            if ccy in CCYS and it.get("cb_price"):
                 out[ccy] = {"rate": float(it["cb_price"]), "diff": 0.0,
                             "date": str(it.get("date", ""))[:10]}
     except Exception as e:
@@ -218,7 +219,7 @@ async def _cbu_all() -> dict:
         j = await _fetch_json("https://cbu.uz/uz/arkhiv-kursov-valyut/json/")
         for it in j:
             ccy = str(it.get("Ccy", "")).upper()
-            if ccy in ("USD", "EUR", "RUB"):
+            if ccy in CCYS:
                 out[ccy] = {"rate": float(it["Rate"]), "diff": float(it.get("Diff") or 0),
                             "date": it.get("Date", "")}
     except Exception as e:
@@ -241,7 +242,7 @@ def _intl_parse(j: dict) -> dict:
         return {}
     ds = _today_tz().strftime("%d.%m.%Y")
     out = {"USD": {"rate": round(uzs, 2), "diff": 0.0, "date": ds, "src": "xalqaro"}}
-    for c in ("EUR", "RUB"):
+    for c in CCYS[1:]:
         if r.get(c):
             out[c] = {"rate": round(uzs / r[c], 2), "diff": 0.0, "date": ds, "src": "xalqaro"}
     return out
@@ -302,7 +303,7 @@ async def get_rates(d: date | None = None, fallback_last: bool = False) -> dict:
         out = kurs_push.get(ds)
         _cache[key] = (time.time(), out)
     else:
-        out = {c: v for c, v in await asyncio.gather(*(_cbu_rate(c, ds) for c in ("USD", "EUR", "RUB"))) if v}
+        out = {c: v for c, v in await asyncio.gather(*(_cbu_rate(c, ds) for c in CCYS)) if v}
         if not out:
             out = kurs_push.get(ds)  # kompyuterdan kelgan (eskiroq bo'lsa ham) MB kursi
         if not out and ds == today.isoformat():

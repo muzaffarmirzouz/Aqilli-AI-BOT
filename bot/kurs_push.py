@@ -34,7 +34,7 @@ def _parse(lst) -> dict[str, dict]:
         if not isinstance(it, dict):
             continue
         ccy = str(it.get("Ccy", "")).upper()
-        if ccy not in ("USD", "EUR", "RUB"):
+        if ccy not in ("USD", "RUB", "EUR", "CNY", "KZT"):
             continue
         ds = str(it.get("Date", ""))  # "27.10.2026" — kurs amal qiladigan sana
         try:

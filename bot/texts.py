@@ -77,17 +77,29 @@ def weather_now(region: str, w: dict | None, today: date) -> str:
     return s + ("\n\n" + "\n".join(rest) if rest else "")
 
 
+CCY_FLAGS = {"USD": "🇺🇸", "RUB": "🇷🇺", "EUR": "🇪🇺", "CNY": "🇨🇳", "KZT": "🇰🇿"}
+
+
+def _diff(x: float) -> str:
+    if not x:
+        return ""
+    s = f"{abs(x):.2f}".rstrip("0").rstrip(".")
+    return f" ({'▲' if x > 0 else '▼'}{s})"
+
+
 def rates_block(r: dict, title: str = "Valyuta kursi") -> str:
+    """O'zR MB kursi — CardXabar uslubida: sarlavha + sana, har valyuta alohida qatorda, o'zgarishi qavsda."""
     if not r:
-        return "💵 <b>Valyuta kursi</b>\n⚠️ Markaziy bank ma'lumoti olinmadi."
-    date_s = next(iter(r.values())).get("date", "")
-    flags = {"USD": "🇺🇸 1 dollar", "EUR": "🇪🇺 1 yevro", "RUB": "🇷🇺 1 rubl"}
-    lines = [f"💵 <b>{title}</b> (MB, {date_s})"]
-    for c in ("USD", "EUR", "RUB"):
+        return "🏦 <b>Valyuta kursi</b>\n⚠️ Markaziy bank ma'lumoti olinmadi."
+    date_s = (r.get("USD") or next(iter(r.values()))).get("date", "")
+    intl = any(v.get("src") == "xalqaro" for v in r.values())
+    head = "🌐 <b>Xalqaro valyuta kursi" if intl else "🏦 <b>O'zR MB valyutalar kursi"
+    lines = [f"{head} - {date_s}</b>", ""]
+    for c, flag in CCY_FLAGS.items():
         if c in r:
-            diff = r[c]["diff"]
-            arrow = "🔺" if diff > 0 else "🔻" if diff < 0 else "▫️"
-            lines.append(f"{flags[c]} = <b>{money(r[c]['rate'])}</b> so'm  {arrow}{diff:+.2f}")
+            lines.append(f"{flag} 1 {c} = {money(r[c]['rate'])} so'm{'' if intl else _diff(r[c].get('diff') or 0)}")
+    if intl:
+        lines.append("\n<i>Markaziy bank sayti hozir javob bermayapti — xalqaro bozor kursi ko'rsatildi.</i>")
     return "\n".join(lines)
 
 
