@@ -292,10 +292,17 @@ async def get_rates(d: date | None = None, fallback_last: bool = False) -> dict:
     ds = (d or today).isoformat()
     key = f"r:{ds}"
     hit = _cache.get(key)
+    from . import kurs_push
     if hit and time.time() - hit[0] < (1200 if hit[1] else 90):
         out = hit[1]
+    elif kurs_push.get(ds, kurs_push.FRESH_SEC):
+        # O'zbekistondagi kompyuter yaqinda yuborgan MB kursi — cbu.uz'ga urinib o'tirmaymiz
+        out = kurs_push.get(ds)
+        _cache[key] = (time.time(), out)
     else:
         out = {c: v for c, v in await asyncio.gather(*(_cbu_rate(c, ds) for c in ("USD", "EUR", "RUB"))) if v}
+        if not out:
+            out = kurs_push.get(ds)  # kompyuterdan kelgan (eskiroq bo'lsa ham) MB kursi
         if not out and ds == today.isoformat():
             out = await _cbu_all() or await _nbu_rates() or await _intl_rates()
         _cache[key] = (time.time(), out)   # bo'sh natija 90 soniya eslab qolinadi (bot qotib qolmasligi uchun)
@@ -324,6 +331,8 @@ async def diagnose_rates() -> str:
             lines.append(f"✅ {name} — {time.time() - t:.1f} s, {n} ta yozuv")
         except Exception as e:
             lines.append(f"❌ {name} — {type(e).__name__}: {str(e)[:120]}")
+    from . import kurs_push
+    lines.append(kurs_push.status())
     last = last_known_rates().get("USD")
     lines.append(f"\n🗂 Oxirgi saqlangan kurs: " + (f"1 USD = {last['rate']} ({last.get('date', '')})" if last else "yo'q"))
     return "\n".join(lines)
