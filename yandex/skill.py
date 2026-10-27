@@ -93,6 +93,11 @@ async def serve():
         igflow.register(app)
     except Exception:
         log.exception("igflow webhook ulanmadi — Alisa ko'nikmasi ishlashda davom etadi")
+    try:  # 💵 O'zbekistondagi kompyuterdan MB kursini qabul qilish (bot/kurs_push.py)
+        from bot import kurs_push
+        kurs_push.register(app)
+    except Exception:
+        log.exception("kurs push ulanmadi")
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", int(port)).start()
