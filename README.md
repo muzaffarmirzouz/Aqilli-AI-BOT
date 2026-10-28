@@ -197,5 +197,6 @@ webhook manzili: `https://<domen>/ig/webhook`. Mavjud `META_*` o'zgaruvchilari v
   Har bir izohga (kalit so'zsiz ham) ochiq javob: `/izoh_avto Matn` yoki variantlar bilan `/izoh_avto A || B || C`, o'chirish `/izoh_avto off`
   Faqat bitta postga: qoida oxiriga post havolasini qo'shing — `/qoida_qosh narx | Javob | DM matni | https://www.instagram.com/p/ABC123/` (shu postdagi izohlarga ishlaydi, umumiy qoidadan ustun)
   Token avtomatik yangilanadi (har 7 kunda, bazada saqlanadi); qo'lda: `/token_yangila`. Xato bo'lsa adminga xabar keladi.
+  🤖 AI bilan aqlli javob (Claude): Railway'da `IGFLOW_AI_KEY` (Anthropic API kaliti), ixtiyoriy `IGFLOW_AI_MODEL` (standart claude-haiku-5-5) va `IGFLOW_AI_DAILY` (kunlik limit, standart 300). Telegram: `/ai on`, `/ai_qoida [@akkaunt] ko'rsatma`, `/ai_izoh on|off`, `/ai_dm on|off`, `/ai_test savol`. Kalit so'zli qoida AI'dan ustun; AI ishlamasa umumiy javob beriladi.
   (bir odamga qayta javob oralig'i: `IGFLOW_COMMENT_COOLDOWN_MIN`, standart 360 daqiqa).
 - Webhook imzosi (`X-Hub-Signature-256`) tekshiriladi; `IGFLOW_APP_SECRET` bo'lmasa so'rovlar rad etiladi.
