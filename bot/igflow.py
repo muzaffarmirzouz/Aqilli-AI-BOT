@@ -146,14 +146,26 @@ async def _refresher():
         await asyncio.sleep(12 * 3600)
 
 
+# Meta'ning vaqtinchalik xatolari: 1/2 — «unexpected error, retry later», 4/17/32/613 — juda ko'p so'rov
+_TRANSIENT = {1, 2, 4, 17, 32, 613}
+_RETRY_WAIT = (5, 15)  # qayta urinishlar orasidagi kutish (soniya)
+
+
 async def _graph(session, method: str, path: str, token: str, **kw):
     kw.setdefault("params", {})["access_token"] = token
-    async with session.request(method, f"{BASE}/{path}", **kw) as r:
-        data = await r.json(content_type=None)
-    if isinstance(data, dict) and data.get("error"):
+    for attempt in range(len(_RETRY_WAIT) + 1):
+        async with session.request(method, f"{BASE}/{path}", **kw) as r:
+            data = await r.json(content_type=None)
+        if not (isinstance(data, dict) and data.get("error")):
+            return data
         err = data["error"]
+        transient = err.get("code") in _TRANSIENT or err.get("is_transient")
+        if method != "GET" and transient and attempt < len(_RETRY_WAIT):
+            log.info("igflow: %s %s — vaqtinchalik xato (kod %s), %s s dan keyin qayta",
+                     method, path, err.get("code"), _RETRY_WAIT[attempt])
+            await asyncio.sleep(_RETRY_WAIT[attempt])
+            continue
         raise IgError(f"{err.get('message')} (kod {err.get('code')})")
-    return data
 
 
 async def _whoami(session, token: str) -> tuple[str, str]:
@@ -348,6 +360,7 @@ async def _on_comment(ig_id: str, v: dict):
     send_dm = bool(rule and rule.get("dm")) and _cooldown_ok(f"{ig_id}:{uid}:{rule['id']}", COOLDOWN)
     if not reply and not send_dm:
         return
+    await asyncio.sleep(3)  # Instagram izohni to'liq saqlab ulgursin (darhol javob ko'pincha «kod 2» beradi)
     async with aiohttp.ClientSession(timeout=_TIMEOUT) as s:
         token = await _token_for(s, ig_id)
         if reply:
