@@ -3,7 +3,7 @@
 Nima qiladi:
   • Postga yozilgan izohda kalit so'z bo'lsa — izohga ochiq javob + yozgan odamga DM (comment-to-DM);
   • DM'ga kalit so'z bo'yicha avtojavob, kalit so'z topilmasa — umumiy avtojavob (ixtiyoriy);
-  • (ixtiyoriy) kalit so'zi bo'lmagan HAR BIR izohga ham ochiq javob — /izoh_avto (variantlar «||» bilan).
+  • (ixtiyoriy) kalit so'zi bo'lmagan HAR BIR izohga ham ochiq javob — /izoh_avto (variantlar «;;» bilan).
 
 Railway o'zgaruvchilari (mavjud META_* o'zgaruvchilariga TEGMAYDI — avto-post eskicha ishlaydi):
   IGFLOW_TOKEN         — Instagram API (Instagram login) tokeni: Meta → Сценарии использования →
@@ -219,13 +219,21 @@ def _default_dm() -> str:
 
 
 def _default_reply() -> str:
-    """Kalit so'zi bo'lmagan izohlarga ochiq javob. Bir nechta variant «||» bilan ajratiladi."""
+    """Kalit so'zi bo'lmagan izohlarga ochiq javob. Bir nechta variant «;;» bilan ajratiladi."""
     return (db.kv_get(KV_DEFAULT_REPLY) or "").strip()
 
 
+_SEP = re.compile(r"\s*(?:;;|\|\|)\s*")
+
+
+def _variants(text: str) -> list[str]:
+    """Variantlarni ajratadi: «;;» (tavsiya) yoki eski «||». Telegram «||» ni yashirin matn qilib qo'yadi, shuning uchun «;;»."""
+    return [v.strip() for v in _SEP.split(text or "") if v.strip()]
+
+
 def _pick(text: str) -> str:
-    """«A || B || C» ko'rinishidagi matndan tasodifiy bittasini tanlaydi (bir xil matn takrorlanmasligi uchun)."""
-    variants = [v.strip() for v in text.split("||") if v.strip()]
+    """«A ;; B ;; C» ko'rinishidagi matndan tasodifiy bittasini tanlaydi (bir xil matn takrorlanmasligi uchun)."""
+    variants = _variants(text)
     return random.choice(variants) if variants else ""
 
 
@@ -694,7 +702,7 @@ HELP = (
     "/qoida_ochir 2 — 2-qoidani o'chirish\n"
     "/dm_avto Matn — kalit so'z topilmagan DM'larga umumiy javob (o'chirish: <code>/dm_avto off</code>)\n"
     "/izoh_avto Matn — <b>har bir</b> izohga (kalit so'zsiz ham) ochiq javob. Bir nechta variant: "
-    "<code>/izoh_avto Rahmat! 🙏 || Fikringiz uchun rahmat 😊 || Qo'llab-quvvatlaganingiz uchun rahmat ❤️</code> "
+    "<code>/izoh_avto Rahmat! 🙏 ;; Fikringiz uchun rahmat 😊 ;; Qo'llab-quvvatlaganingiz uchun rahmat ❤️</code> "
     "(o'chirish: <code>/izoh_avto off</code>)\n"
     "/token_yangila — Instagram tokenini hozir yangilash (o'zi ham har 7 kunda yangilanadi)\n"
     "\n🤖 <b>AI javob:</b> /ai — holat va buyruqlar (yoqish: <code>/ai on</code>)\n"
@@ -904,7 +912,7 @@ async def cmd_default_reply(m: Message, command: CommandObject):
     if not arg:
         dr = _default_reply()
         await m.answer(f"Har bir izohga javob: {html.escape(dr) if dr else 'o‘chiq'}\n"
-                       "O'rnatish: <code>/izoh_avto Matn</code> (bir nechta variant: <code>A || B || C</code>), "
+                       "O'rnatish: <code>/izoh_avto Matn</code> (bir nechta variant: <code>A ;; B ;; C</code>), "
                        "o'chirish: <code>/izoh_avto off</code>")
         return
     if arg.lower() == "off":
@@ -915,7 +923,7 @@ async def cmd_default_reply(m: Message, command: CommandObject):
         await m.answer("Javob matni bo'sh. Misol: <code>/izoh_avto Rahmat! 🙏</code>")
         return
     db.kv_set(KV_DEFAULT_REPLY, arg)
-    n = len([v for v in arg.split("||") if v.strip()])
+    n = len(_variants(arg))
     mins = COMMENT_COOLDOWN // 60
     await m.answer(f"✅ Har bir izohga ochiq javob yoqildi ({n} ta variant). Bir odamga {mins} daqiqada bir marta "
                    "javob beriladi. Kalit so'zli qoidalar avvalgidek ishlaydi.")
