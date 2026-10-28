@@ -374,6 +374,24 @@ def _ai_rate_ok(key: str, limit: int) -> bool:
     return True
 
 
+def _ai_limit() -> int:
+    """Kunlik AI javoblar limiti: /ai_limit orqali qo'yilgan, bo'lmasa IGFLOW_AI_DAILY."""
+    try:
+        v = db.kv_get("igflow_ai_limit")
+        return int(v) if v not in (None, "") else AI_DAILY
+    except Exception:
+        return AI_DAILY
+
+
+def _ai_used() -> int:
+    day = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 5 * 3600))
+    try:
+        st = json.loads(db.kv_get("igflow_ai_day") or "{}")
+    except Exception:
+        return 0
+    return int(st.get("n", 0)) if st.get("d") == day else 0
+
+
 def _ai_day_take() -> bool:
     """Kunlik limit: bo'sh joy bo'lsa bittasini band qiladi."""
     day = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 5 * 3600))
@@ -383,7 +401,7 @@ def _ai_day_take() -> bool:
         st = {}
     if st.get("d") != day:
         st = {"d": day, "n": 0}
-    if st["n"] >= AI_DAILY:
+    if st["n"] >= _ai_limit():
         return False
     st["n"] += 1
     db.kv_set("igflow_ai_day", json.dumps(st))
@@ -450,7 +468,7 @@ async def _ai_answer(ig_id: str, uid: str, username: str, text: str, kind: str) 
     if not _ai_rate_ok(rate_key, AI_COMMENT_PER_HOUR if kind == "comment" else AI_DM_PER_HOUR):
         return ""
     if not _ai_day_take():
-        await _alert(f"⚠️ AI kunlik limiti ({AI_DAILY}) tugadi — oddiy javoblarga o'tildi.")
+        await _alert(f"⚠️ AI kunlik limiti ({_ai_limit()}) tugadi — oddiy (umumiy) javoblarga o'tildi. Yangilanishi: ertaga 00:00 (Toshkent).")
         return None
     text = text.strip()[:500]
     hkey = f"{ig_id}:{uid}"
@@ -764,11 +782,24 @@ async def cmd_ai(m: Message, command: CommandObject):
         f"💬 Izohlarga: {'ha' if c['comments'] else 'yo‘q'} · 📩 DM'larga: {'ha' if c['dms'] else 'yo‘q'}\n"
         f"📝 Umumiy ko'rsatma: {html.escape(c['prompt'][:200]) or '—'}\n"
         f"📝 Akkauntga xos:\n{prompts}\n"
-        f"Kunlik limit: {AI_DAILY}\n\n"
+        f"Kunlik limit: {_ai_limit()} ta (izoh+DM birga) · bugun ishlatildi: {_ai_used()}\n\n"
         "/ai on | /ai off\n"
         "/ai_qoida [@akkaunt] ko'rsatma matni\n"
         "/ai_izoh on|off · /ai_dm on|off\n"
+        "/ai_limit 100 — kuniga nechta AI javob (tugagach oddiy avtojavob ketadi)\n"
         "/ai_test [@akkaunt] savol — AI qanday javob berishini sinash")
+
+
+@router.message(Command("ai_limit"))
+async def cmd_ai_limit(m: Message, command: CommandObject):
+    arg = (command.args or "").strip()
+    if not arg.isdigit() or int(arg) > 100000:
+        await m.answer(f"Hozirgi limit: {_ai_limit()} ta/kun (bugun ishlatildi: {_ai_used()}).\n"
+                       "O'zgartirish: <code>/ai_limit 100</code> (0 — AI javob bermaydi)")
+        return
+    db.kv_set("igflow_ai_limit", arg)
+    await m.answer(f"✅ Kunlik AI limiti: {int(arg)} ta (izoh va DM birga). Tugagach oddiy avtojavob "
+                   "(/izoh_avto, /dm_avto) ketadi; kun yarim tunda (Toshkent) yangilanadi.")
 
 
 @router.message(Command("ai_qoida"))
