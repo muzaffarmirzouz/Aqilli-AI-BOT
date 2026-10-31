@@ -100,7 +100,7 @@ async def _access_token(session) -> str:
         "refresh_token": REFRESH_TOKEN, "grant_type": "refresh_token"}) as r:
         d = await r.json(content_type=None)
     if not isinstance(d, dict) or "access_token" not in d:
-        raise YtError(f"Google token olinmadi: {(d or {}).get('error_description') or (d or {}).get('error') or d}")
+        raise YtError(f"Google token olinmadi: {(d or {}).get('error')} — {(d or {}).get('error_description') or d}")
     _token["v"], _token["exp"] = d["access_token"], time.time() + int(d.get("expires_in", 3600))
     return _token["v"]
 
@@ -328,6 +328,18 @@ async def cmd_yt_check(m: Message):
     if not configured():
         await m.answer("❌ YTFLOW_* o'zgaruvchilari yo'q.")
         return
+    def _shape(v: str, pre: str = "") -> str:
+        """Maxfiy qiymatni oshkor qilmasdan shaklini ko'rsatadi."""
+        ok = "✅" if (not pre or v.startswith(pre)) else "❌"
+        return f"{ok} uzunligi {len(v)}" + (", bo'sh joy/qator bor ❌" if re.search(r"\s|[\"']", v) else "")
+    cfg_lines = [
+        "🔎 <b>Sozlama tekshiruvi</b> (qiymatlar ko'rsatilmaydi)",
+        f"Client ID: {_shape(CLIENT_ID)}; .apps.googleusercontent.com bilan tugaydi: "
+        f"{'✅' if CLIENT_ID.endswith('.apps.googleusercontent.com') else '❌'}; boshi: {html.escape(CLIENT_ID[:12])}…",
+        f"Client secret: {_shape(CLIENT_SECRET, 'GOCSPX-')} (odatda GOCSPX- bilan boshlanib 35 belgi)",
+        f"Refresh token: {_shape(REFRESH_TOKEN, '1//')} (odatda 1// bilan boshlanadi)",
+        ""]
+    await m.answer("\n".join(cfg_lines))
     try:
         cid = await _my_channel()
         d = await _api("GET", "commentThreads", {
