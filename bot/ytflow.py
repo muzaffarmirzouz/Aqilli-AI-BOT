@@ -149,28 +149,29 @@ def _author_ok(author: str) -> bool:
 
 
 async def _make_reply(text: str, author: str, video_id: str) -> str:
-    """Qoida → AI. Qaytaradi javob matni yoki "" (javob kerak emas)."""
+    """Qoida → AI → umumiy javob (/izoh_avto). Qaytaradi javob matni yoki "" (javob yozilmaydi)."""
+    c = _cfg()
+    if not c["on"] or _used() >= min(c["limit"], HARD_DAILY):
+        return ""
     rule = igflow.match_rule(text, igflow._rules(), media_id="", dm=True)
     if rule and rule.get("reply"):
         return igflow._pick(rule["reply"])
-    c = _cfg()
-    if not (c["on"] and igflow._ai_key()):
-        return ""
-    if not _take():
-        return ""
+    fallback = igflow._pick(igflow._default_reply())      # Instagramdagi «har bir izohga javob» matnlari
+    if not igflow._ai_key():
+        return fallback
     try:
         out = await igflow._claude(
             igflow._ai_system(c["prompt"], "", "comment", platform="Namanganliklar.uz YouTube kanali"),
             [{"role": "user", "content": f"<xabar>{text[:500]}</xabar>"}], 250)
     except Exception as e:
         log.warning("ytflow: AI: %s", e)
-        return ""
-    if "[ODAM]" in out:
+        return fallback
+    if "[ODAM]" in out:                       # AI bilmaydigan savol: umumiy «rahmat» yozmaymiz, adminga aytamiz
         await igflow._tell_admins(f"🙋 YouTube izohi — AI javob bera olmadi, odam kerak.\n"
                                   f"{author}: {text[:300]}\nhttps://youtu.be/{video_id}")
         return ""
     if not out or "[SKIP]" in out:
-        return ""
+        return fallback
     return out.strip().strip('"«»')[:900]
 
 
@@ -203,6 +204,8 @@ async def process(threads: list[dict]) -> int:
             continue
         reply = await _make_reply(text, sn.get("authorDisplayName", ""), sn.get("videoId", ""))
         if not reply:
+            continue
+        if not _take():                     # kunlik limit (kvota) — har bir yozilgan javob hisoblanadi
             continue
         await asyncio.sleep(2)
         try:
