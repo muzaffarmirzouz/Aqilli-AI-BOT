@@ -185,10 +185,8 @@ async def _make_reply(text: str, author: str, video_id: str) -> str:
     except Exception as e:
         log.warning("ytflow: AI: %s", e)
         return fallback
-    if "[ODAM]" in out:                       # AI bilmaydigan savol: umumiy «rahmat» yozmaymiz, adminga aytamiz
-        await igflow._tell_admins(f"🙋 YouTube izohi — AI javob bera olmadi, odam kerak.\n"
-                                  f"{author}: {text[:300]}\nhttps://youtu.be/{video_id}")
-        return ""
+    if "[ODAM]" in out:                       # AI bilmaydigan savol: adminni bezovta qilmaymiz, umumiy javob yoziladi
+        return fallback
     if not out or "[SKIP]" in out:
         return fallback
     return out.strip().strip('"«»')[:900]

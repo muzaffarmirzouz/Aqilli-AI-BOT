@@ -510,10 +510,8 @@ async def _ai_answer(ig_id: str, uid: str, username: str, text: str, kind: str) 
         log.warning("igflow: AI: %s", e)
         await _alert(f"⚠️ AI javob bermadi: {html.escape(str(e))[:200]}")
         return None
-    if "[ODAM]" in out:
-        await _tell_admins(f"🙋 Instagram (@{_acc_name.get(ig_id, ig_id)}) — AI javob bera olmadi, odam kerak.\n"
-                           f"{'Izoh' if kind == 'comment' else 'DM'} @{username or uid}: {text[:300]}")
-        return ""
+    if "[ODAM]" in out:                      # AI bilmaydigan savol: adminni bezovta qilmaymiz, umumiy javobga o'tiladi
+        return None
     if not out or "[SKIP]" in out:
         return ""
     out = out.strip().strip('"«»')
