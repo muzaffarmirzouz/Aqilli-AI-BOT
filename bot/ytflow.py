@@ -320,3 +320,33 @@ async def cmd_yt_test(m: Message, command: CommandObject):
 def setup(bot):
     global _bot
     _bot = bot
+
+
+@router.message(Command("yt_tekshir"))
+async def cmd_yt_check(m: Message):
+    """Diagnostika: kanalning oxirgi izohlarini ko'rsatadi va hozir bir marta tekshiradi."""
+    if not configured():
+        await m.answer("❌ YTFLOW_* o'zgaruvchilari yo'q.")
+        return
+    try:
+        cid = await _my_channel()
+        d = await _api("GET", "commentThreads", {
+            "part": "snippet", "allThreadsRelatedToChannelId": cid, "order": "time", "maxResults": 5})
+        items = d.get("items") or []
+        try:
+            seen = set(json.loads(db.kv_get(KV_SEEN) or "[]"))
+        except Exception:
+            seen = set()
+        lines = [f"Kanal: <code>{html.escape(cid)}</code>", f"API qaytargan izoh oqimlari: {len(items)} (oxirgi 5 tasi)"]
+        for th in items:
+            top = (th.get("snippet") or {}).get("topLevelComment") or {}
+            sn = top.get("snippet") or {}
+            mark = "ko'rilgan" if th.get("id") in seen else "YANGI"
+            lines.append(f"• [{mark}] {html.escape(sn.get('authorDisplayName', '?'))}: {html.escape(_text_of(top)[:60])} "
+                         f"(javoblar: {(th.get('snippet') or {}).get('totalReplyCount', 0)})")
+        n = await process(list(reversed(items)))
+        lines.append(f"\nHozir tekshirildi, yozilgan javob: {n}")
+        await m.answer("\n".join(lines))
+    except Exception as e:
+        await m.answer(f"❌ Xato: {html.escape(str(e))[:500]}")
+
