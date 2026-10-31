@@ -37,7 +37,7 @@ API = "https://www.googleapis.com/youtube/v3"
 _TIMEOUT = aiohttp.ClientTimeout(total=25)
 KV_CFG = "ytflow_cfg"
 KV_SEEN = "ytflow_seen"
-HARD_DAILY = 150            # kvotadan oshib ketmaslik uchun qat'iy chegara (150 × 50 = 7500 birlik)
+HARD_DAILY = 150            # YouTube kvotasi tufayli kuniga JAMI javoblar chegarasi (150 × 50 = 7500 birlik)
 PER_AUTHOR_HOUR = 3
 
 _token = {"v": "", "exp": 0.0}
@@ -76,11 +76,28 @@ def _used() -> int:
 
 
 def _take() -> bool:
-    c = _cfg()
+    """Yozilgan har bir javob (qoida/AI/umumiy) YouTube kvotasidan hisoblanadi."""
     n = _used()
-    if n >= min(c["limit"], HARD_DAILY):
+    if n >= HARD_DAILY:
         return False
     db.kv_set("ytflow_day", json.dumps({"d": _day(), "n": n + 1}))
+    return True
+
+
+def _ai_used() -> int:
+    try:
+        st = json.loads(db.kv_get("ytflow_ai_day") or "{}")
+    except Exception:
+        return 0
+    return int(st.get("n", 0)) if st.get("d") == _day() else 0
+
+
+def _ai_take() -> bool:
+    """AI (aqlli) javoblar limiti — /yt_limit. Tugasa umumiy javoblarga (/izoh_avto) o'tiladi."""
+    n = _ai_used()
+    if n >= _cfg()["limit"]:
+        return False
+    db.kv_set("ytflow_ai_day", json.dumps({"d": _day(), "n": n + 1}))
     return True
 
 
@@ -151,13 +168,15 @@ def _author_ok(author: str) -> bool:
 async def _make_reply(text: str, author: str, video_id: str) -> str:
     """Qoida → AI → umumiy javob (/izoh_avto). Qaytaradi javob matni yoki "" (javob yozilmaydi)."""
     c = _cfg()
-    if not c["on"] or _used() >= min(c["limit"], HARD_DAILY):
+    if not c["on"] or _used() >= HARD_DAILY:
         return ""
     rule = igflow.match_rule(text, igflow._rules(), media_id="", dm=True)
     if rule and rule.get("reply"):
         return igflow._pick(rule["reply"])
     fallback = igflow._pick(igflow._default_reply())      # Instagramdagi «har bir izohga javob» matnlari
     if not igflow._ai_key():
+        return fallback
+    if not _ai_take():                        # AI limiti tugadi → umumiy javoblar
         return fallback
     try:
         out = await igflow._claude(
@@ -272,7 +291,8 @@ async def cmd_yt(m: Message, command: CommandObject):
         f"▶️ <b>YouTube AI javob:</b> {'yoqilgan' if c['on'] else 'o‘chiq'}\n"
         f"🔑 Google ulanishi: {'bor' if configured() else 'YO‘Q'} · AI kaliti: {'bor' if igflow._ai_key() else 'YO‘Q'}\n"
         f"📝 Ko'rsatma: {html.escape(c['prompt'][:200]) or '—'}\n"
-        f"Kunlik limit: {min(c['limit'], HARD_DAILY)} (bugun: {_used()}) · tekshiruv: har {POLL} soniyada\n\n"
+        f"🤖 AI javoblar: {_ai_used()}/{c['limit']} (tugagach umumiy javoblar: {'bor' if igflow._default_reply() else 'YO‘Q — /izoh_avto'})\n"
+        f"📨 Jami javoblar bugun: {_used()}/{HARD_DAILY} · tekshiruv: har {POLL} soniyada\n\n"
         "/yt on | /yt off\n/yt_qoida ko'rsatma matni\n/yt_limit 100\n/yt_test savol\n"
         "Kalit so'zli qoidalar Instagram bilan umumiy (/qoida).")
 
@@ -293,13 +313,14 @@ async def cmd_yt_prompt(m: Message, command: CommandObject):
 async def cmd_yt_limit(m: Message, command: CommandObject):
     arg = (command.args or "").strip()
     if not arg.isdigit():
-        await m.answer(f"Hozirgi limit: {min(_cfg()['limit'], HARD_DAILY)} ta/kun (bugun: {_used()}). "
-                       f"O'zgartirish: <code>/yt_limit 100</code> (ko'pi bilan {HARD_DAILY} — YouTube kvotasi tufayli)")
+        await m.answer(f"AI javoblar limiti: {_cfg()['limit']} ta/kun (bugun: {_ai_used()}). Undan keyin umumiy javoblar "
+                       f"(/izoh_avto) yoziladi. Jami javoblar kuniga {HARD_DAILY} tadan oshmaydi (YouTube kvotasi), bugun: {_used()}.\n"
+                       "O'zgartirish: <code>/yt_limit 100</code>")
         return
     c = _cfg()
     c["limit"] = int(arg)
     _save(c)
-    await m.answer(f"✅ Kunlik limit: {min(int(arg), HARD_DAILY)} ta.")
+    await m.answer(f"✅ AI javoblar limiti: {int(arg)} ta/kun. Undan keyin umumiy javoblar (/izoh_avto) yoziladi.")
 
 
 @router.message(Command("yt_test"))
