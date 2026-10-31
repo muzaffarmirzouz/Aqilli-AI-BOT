@@ -200,3 +200,9 @@ webhook manzili: `https://<domen>/ig/webhook`. Mavjud `META_*` o'zgaruvchilari v
   🤖 AI bilan aqlli javob (Claude): Railway'da `IGFLOW_AI_KEY` (Anthropic API kaliti), ixtiyoriy `IGFLOW_AI_MODEL` (standart claude-haiku-5-5) va `IGFLOW_AI_DAILY` (kunlik limit, standart 300). Telegram: `/ai on`, `/ai_qoida [@akkaunt] ko'rsatma`, `/ai_izoh on|off`, `/ai_dm on|off`, `/ai_limit N` (kunlik AI javoblar soni), `/ai_test savol`. Kalit so'zli qoida AI'dan ustun; AI ishlamasa umumiy javob beriladi.
   (bir odamga qayta javob oralig'i: `IGFLOW_COMMENT_COOLDOWN_MIN`, standart 360 daqiqa).
 - Webhook imzosi (`X-Hub-Signature-256`) tekshiriladi; `IGFLOW_APP_SECRET` bo'lmasa so'rovlar rad etiladi.
+
+## ▶️ YouTube izohlariga AI javob (`bot/ytflow.py`)
+Kanal izohlari har 3 daqiqada tekshiriladi; yangi izohga kalit so'zli qoida (Instagram bilan umumiy, faqat «izohga javob» matni) yoki AI javob beradi.
+- Railway: `YTFLOW_CLIENT_ID`, `YTFLOW_CLIENT_SECRET`, `YTFLOW_REFRESH_TOKEN` (Google OAuth, YouTube Data API v3), `IGFLOW_AI_KEY`; ixtiyoriy `YTFLOW_POLL_SEC` (180).
+- Telegram (adminlar): `/yt`, `/yt on|off`, `/yt_qoida ko'rsatma`, `/yt_limit N`, `/yt_test savol`.
+- Birinchi ishga tushishda eski izohlarga javob berilmaydi. Kuniga ko'pi bilan 150 javob (YouTube kvotasi: javob = 50 birlik, kuniga 10 000).

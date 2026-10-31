@@ -423,10 +423,10 @@ def _clip_bytes(text: str, limit: int) -> str:
     return b[:limit].decode(errors="ignore").rstrip() + "…"
 
 
-def _ai_system(owner_prompt: str, username: str, kind: str) -> str:
+def _ai_system(owner_prompt: str, username: str, kind: str, platform: str = "Instagram akkaunti") -> str:
     size = ("Izohga javob: 1–2 qisqa gap, 250 belgidan oshmasin." if kind == "comment"
             else "DM javobi: ko'pi bilan 4–5 qisqa gap, 800 belgidan oshmasin.")
-    return (f"Sen Instagram akkaunti (@{username or 'akkaunt'}) nomidan izoh va xabarlarga javob yozasan.\n"
+    return (f"Sen {platform} ({'@' + username if username else 'egasi'}) nomidan izoh va xabarlarga javob yozasan.\n"
             f"Akkaunt egasining ko'rsatmasi:\n---\n{owner_prompt or 'Do`stona va qisqa javob ber.'}\n---\n"
             "Qoidalar:\n"
             "- Foydalanuvchi qaysi tilda yozsa, shu tilda (o'zbek, rus, ingliz) javob ber.\n"
