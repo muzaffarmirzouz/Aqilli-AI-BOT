@@ -454,6 +454,22 @@ async def _claude(system: str, messages: list[dict], max_tokens: int = 400) -> s
     return "".join(b.get("text", "") for b in data["content"] if b.get("type") == "text").strip()
 
 
+async def _limit_notice():
+    """Kunlik limit tugagani haqida adminga kuniga FAQAT BIR marta xabar."""
+    day = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 5 * 3600))
+    if db.kv_get("igflow_ai_limit_told") == day:
+        return
+    db.kv_set("igflow_ai_limit_told", day)
+    if not _bot:
+        return
+    for a in ADMIN_IDS:
+        try:
+            await _bot.send_message(a, f"⚠️ AI kunlik limiti ({_ai_limit()}) tugadi — oddiy (umumiy) javoblarga o'tildi. "
+                                       "Yangilanishi: ertaga 00:00 (Toshkent).")
+        except Exception:
+            pass
+
+
 async def _tell_admins(text: str):
     """«Odam kerak» holatlari haqida adminga xabar (kuniga ko'pi bilan 20 ta)."""
     day = int(time.time() // 86400)
@@ -476,7 +492,7 @@ async def _ai_answer(ig_id: str, uid: str, username: str, text: str, kind: str) 
     if not _ai_rate_ok(rate_key, AI_COMMENT_PER_HOUR if kind == "comment" else AI_DM_PER_HOUR):
         return ""
     if not _ai_day_take():
-        await _alert(f"⚠️ AI kunlik limiti ({_ai_limit()}) tugadi — oddiy (umumiy) javoblarga o'tildi. Yangilanishi: ertaga 00:00 (Toshkent).")
+        await _limit_notice()
         return None
     text = text.strip()[:500]
     hkey = f"{ig_id}:{uid}"
