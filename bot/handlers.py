@@ -209,9 +209,30 @@ async def prayer_image(c: CallbackQuery):
 
 
 # =================== Ob-havo va kurs ===================
+async def _guarded(m: Message, name: str, coro):
+    """Tugma xatoga uchrasa — foydalanuvchiga xabar, adminlarga sababi (jim qolmaydi)."""
+    try:
+        await asyncio.wait_for(coro, timeout=90)
+    except Exception as e:
+        log.exception("%s tugmasi (%s): %s", name, m.from_user.id, e)
+        err = f"{type(e).__name__}: {e}"[:300]
+        try:
+            await m.answer(f"⚠️ {name} hozircha chiqmadi. Birozdan keyin qayta urinib ko'ring.")
+        except Exception:
+            pass
+        if m.from_user.id not in ADMIN_IDS:
+            await jobs.notify_admins(m.bot, f"❌ «{name}» tugmasi xatosi\n"
+                                            f"👤 {html.escape(m.from_user.full_name)} (<code>{m.from_user.id}</code>)\n"
+                                            f"<code>{html.escape(err)}</code>")
+
+
 @pm.message(F.text == B_WEATHER)
 @pm.message(Command("obhavo"))
 async def weather(m: Message):
+    await _guarded(m, "Ob-havo", _weather(m))
+
+
+async def _weather(m: Message):
     r = user_region(m.from_user.id)
     try:
         w = await sources.get_weather(r)
@@ -236,6 +257,10 @@ async def weather(m: Message):
 @pm.message(F.text == B_RATES)
 @pm.message(Command("kurs"))
 async def rates(m: Message):
+    await _guarded(m, "Valyuta kursi", _rates(m))
+
+
+async def _rates(m: Message):
     t = today()
     tom = t + timedelta(days=1)
     try:
