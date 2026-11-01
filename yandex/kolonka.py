@@ -73,10 +73,29 @@ def enabled(p: store.Profile, k: str) -> bool:
     return (k != "quyosh") if v is None else bool(v)
 
 
+# Pastki menyu tugmalari — kutish holatida bosilsa, buyruq/matn sifatida SAQLANMAYDI
+MENU_BUTTONS = {
+    "🕌 Namoz vaqtlari", "🌤 Ob-havo", "💵 Valyuta kursi", "📍 Hududni o'zgartirish",
+    "🔔 Kunlik xabarlar", "🔔 Kechki xabar", "📢 Kanalimga ulash", "⚙️ Admin panel",
+    "🔊 Kolonka eslatma", "🕌 Namoz vaqtida xabar",
+}
+
+
+def is_menu_text(t) -> bool:
+    """Menyu tugmasi matnimi (yoki harf/raqam bilan boshlanmaydigan emoji-tugma)?"""
+    t = " ".join((t or "").split())
+    if not t:
+        return False
+    if t in MENU_BUTTONS:
+        return True
+    c = t[0]
+    return not (c.isalnum() or c in "-«\"'(")
+
+
 def azan_cmd(p: store.Profile, k: str | None = None) -> str:
     """Foydalanuvchi o'z buyrug'ini yozgan bo'lsa — o'sha; bo'lmasa «Namoz azoni» ko'nikmasi
     (sozlangan bo'lsa, Plus kerak emas) yoki «включи азан» (Yandex Musiqa, Plus kerak)."""
-    if p.azan_cmd:
+    if p.azan_cmd and not is_menu_text(p.azan_cmd):
         return p.azan_cmd
     return skill.launch_command(k) if skill.configured() else DEFAULT_AZAN_CMD
 
@@ -542,8 +561,17 @@ async def _connected(bot: Bot, uid: int, x_token: str, login: str):
 
 
 # ---------------- matn kiritish ----------------
-@router.message(F.func(lambda m: WAIT.get(m.from_user.id) is not None
-                       and not (m.text or "").startswith("/")))
+def _waiting(m) -> bool:
+    uid = m.from_user.id if m.from_user else 0
+    if WAIT.get(uid) is None or (m.text or "").startswith("/"):
+        return False
+    if WAIT.get(uid) != "cookie" and is_menu_text(m.text):
+        WAIT.pop(uid, None)  # menyu tugmasi bosildi — kutish bekor, tugma odatdagidek ishlaydi
+        return False
+    return True
+
+
+@router.message(F.func(_waiting))
 async def receive(m: Message, bot: Bot):
     uid = m.from_user.id
     state = WAIT[uid]
