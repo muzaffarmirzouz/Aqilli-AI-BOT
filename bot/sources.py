@@ -302,6 +302,8 @@ async def get_rates(d: date | None = None, fallback_last: bool = False) -> dict:
         # O'zbekistondagi kompyuter yaqinda yuborgan MB kursi — cbu.uz'ga urinib o'tirmaymiz
         out = kurs_push.get(ds)
         _cache[key] = (time.time(), out)
+        if out and ds == today.isoformat():
+            _remember(out)
     else:
         out = {c: v for c, v in await asyncio.gather(*(_cbu_rate(c, ds) for c in CCYS)) if v}
         if not out:

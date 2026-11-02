@@ -100,6 +100,9 @@ async def _push(request: web.Request) -> web.Response:
         from . import sources
         for iso in saved:
             sources._cache.pop(f"r:{iso}", None)
+        today = sources._today_tz().isoformat()
+        if today in saved:  # «oxirgi saqlangan kurs» ham yangilansin (zaxira sifatida ishlatiladi)
+            sources._remember(get(today))
     except Exception:
         pass
     return web.json_response({"ok": bool(saved), "saved": saved})
