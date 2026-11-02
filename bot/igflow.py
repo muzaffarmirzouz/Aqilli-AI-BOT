@@ -562,14 +562,13 @@ async def _on_comment(ig_id: str, v: dict):
         return
     # Ochiq javob: qoidadagi matn; yo'q bo'lsa — AI (yoqilgan bo'lsa); u ham bo'lmasa — umumiy javob (cooldown bilan)
     reply = (rule or {}).get("reply") or ""
+    src = "qoida" if reply else ""
     if not reply and use_ai and _cooldown_ok(f"{ig_id}:{uid}:aic", 30):
-        ai = await _ai_answer(ig_id, uid, frm.get("username") or "", text, "comment")
-        if ai is None:       # AI ishlamadi — umumiy javobga qaytamiz
-            use_ai = False
-        else:
-            reply = ai
-    if not reply and not use_ai and default and _cooldown_ok(f"{ig_id}:{uid}:creply", COMMENT_COOLDOWN):
-        reply = _pick(default)
+        reply = await _ai_answer(ig_id, uid, frm.get("username") or "", text, "comment") or ""
+        src = "AI" if reply else ""
+    if not reply and default and _cooldown_ok(f"{ig_id}:{uid}:creply", COMMENT_COOLDOWN):
+        reply, src = _pick(default), "umumiy"   # AI jim tursa/ishlamasa ham har bir izohga umumiy javob
+    log.info("igflow: izoh @%s (%s): %r → %s", frm.get("username") or uid, _acc_name.get(ig_id, ig_id), text[:40], src or "javob yo'q")
     send_dm = bool(rule and rule.get("dm")) and _cooldown_ok(f"{ig_id}:{uid}:{rule['id']}", COOLDOWN)
     if not reply and not send_dm:
         return
