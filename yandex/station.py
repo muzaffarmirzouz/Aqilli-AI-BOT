@@ -179,14 +179,23 @@ class Client:
 
     async def _login(self):
         """x-token bilan yangi sessiya cookie'larini oladi (Home Assistant usuli)."""
-        async with self.s.post(f"{_MP}/auth/x_token/",
-                               data={"type": "x-token", "retpath": "https://www.yandex.ru"},
-                               headers={"Ya-Consumer-Authorization": f"OAuth {self.x_token}"}) as r:
-            text = await r.text()
-        try:
-            resp = json.loads(text)
-        except ValueError:
-            resp = {}
+        # Mobil API'ga brauzer nomi bilan kirish 403 berishi mumkin — avval Home Assistant kabi standart,
+        # keyin mobil ilova nomi bilan urinamiz.
+        from aiohttp.http import SERVER_SOFTWARE
+        agents = [SERVER_SOFTWARE, "com.yandex.mobile.auth.sdk/7.42.0.742001084 (Google Pixel 6; Android 12)", UA]
+        resp, text, r = {}, "", None
+        for ua in agents:
+            async with self.s.post(f"{_MP}/auth/x_token/",
+                                   data={"type": "x-token", "retpath": "https://www.yandex.ru"},
+                                   headers={"Ya-Consumer-Authorization": f"OAuth {self.x_token}",
+                                            "User-Agent": ua}) as r:
+                text = await r.text()
+            try:
+                resp = json.loads(text)
+            except ValueError:
+                resp = {}
+            if resp.get("status") == "ok" or r.status != 403:
+                break
         if resp.get("status") != "ok":
             errs = resp.get("errors") or resp.get("error") or text[:200]
             log.warning("yandex x_token/ rad etdi: HTTP %s %s", r.status, text[:300])
