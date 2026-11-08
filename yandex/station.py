@@ -188,8 +188,13 @@ class Client:
         except ValueError:
             resp = {}
         if resp.get("status") != "ok":
-            raise YandexAuthError("Yandex akkaunti uzilgan (token bekor qilingan yoki eskirgan) — "
-                                  "qaytadan ulang.")
+            errs = resp.get("errors") or resp.get("error") or text[:200]
+            log.warning("yandex x_token/ rad etdi: HTTP %s %s", r.status, text[:300])
+            revoked = any(w in str(errs).lower() for w in ("token", "invalid", "expired", "sessionid"))
+            raise YandexAuthError(
+                ("Yandex akkaunti uzilgan (token bekor qilingan yoki eskirgan) — qaytadan ulang. "
+                 if revoked else "Yandex sessiya ochishni rad etdi (token to'g'ri, lekin kirish taqiqlangan). ")
+                + f"[Yandex: HTTP {r.status} {str(errs)[:160]}]")
         host = resp.get("passport_host") or "https://passport.yandex.ru"
         async with self.s.get(f"{host}/auth/session/", params={"track_id": resp["track_id"]},
                               allow_redirects=False) as r:
