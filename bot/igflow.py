@@ -526,6 +526,12 @@ async def _ai_answer(ig_id: str, uid: str, username: str, text: str, kind: str) 
 
 # ---------- Instagram'ga yuborish ----------
 
+def _gone(e) -> bool:
+    """Izoh endi yo'q (egasi o'chirgan, Instagram spam deb yashirgan) — «kod 100 … does not exist»."""
+    t = str(e)
+    return "(kod 100)" in t and ("does not exist" in t or "missing permissions" in t)
+
+
 async def _reply_comment(session, token: str, comment_id: str, text: str):
     await _graph(session, "POST", f"{comment_id}/replies", token, data={"message": text})
 
@@ -580,6 +586,8 @@ async def _on_comment(ig_id: str, v: dict):
                 await _reply_comment(s, token, cid, reply)
             except Exception as e:
                 log.warning("igflow: izohga javob: %s", e)
+                if _gone(e):  # izoh o'chirilgan/yashirilgan (ko'pincha spam) — adminni bezovta qilmaymiz
+                    return
                 await _alert(f"⚠️ Instagram izohiga javob bermadi: {html.escape(str(e))[:200]}")
         if send_dm:
             try:

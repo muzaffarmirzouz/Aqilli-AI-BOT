@@ -35,6 +35,12 @@ SUB_TEXT = (
 )
 
 
+def _network_error(e) -> bool:
+    t = f"{type(e).__name__}: {e}"
+    return any(x in t for x in ("NetworkError", "ClientConnectorError", "ClientOSError", "Connection reset",
+                                "TimeoutError", "ServerDisconnected", "Cannot connect to host"))
+
+
 async def is_subscribed(bot: Bot, uid: int, use_cache: bool = True) -> bool:
     if not REQUIRED_CHANNEL or uid in ADMIN_IDS:
         return True
@@ -45,6 +51,8 @@ async def is_subscribed(bot: Bot, uid: int, use_cache: bool = True) -> bool:
     except Exception as e:
         # bot kanalda admin emas yoki kanal topilmadi — hammani bloklab qo'ymaslik uchun o'tkazib yuboramiz
         log.warning("obunani tekshirib bo'lmadi: %s", e)
+        if _network_error(e):  # internet/Telegram bilan bog'lanish uzilishi — vaqtinchalik, admin aybi emas
+            return True
         if time.time() - _warned["t"] > 3600:
             _warned["t"] = time.time()
             for a in ADMIN_IDS:
