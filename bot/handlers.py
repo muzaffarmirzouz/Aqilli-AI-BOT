@@ -994,17 +994,31 @@ def news_kb(st: dict):
     return kb.as_markup()
 
 
+# Yangilik/video faqat SIZNING kanallaringizga yuboriladi (foydalanuvchilar ulagan kanallarga emas).
+# Railway: NEWS_CHANNELS=@kanal1,@kanal2 — ro'yxatni aniq belgilash (bo'lmasa: REQUIRED_CHANNEL + adminlar ulagan kanallar)
+NEWS_CHANNELS = [x.strip() for x in os.getenv("NEWS_CHANNELS", "").split(",") if x.strip()]
+
+
 def _targets() -> list[tuple]:
-    """Yuborish mumkin bo'lgan kanallar: (chat_id, nomi, username)."""
+    """Yuborish mumkin bo'lgan kanallar: (chat_id, nomi, username) — faqat adminning o'z kanallari."""
     out, seen = [], set()
-    if REQUIRED_CHANNEL:
-        u = REQUIRED_CHANNEL.lstrip("@")
-        out.append((REQUIRED_CHANNEL, REQUIRED_CHANNEL, u))
-        seen.add(u.lower())
-    for ch in db.active_chats():
-        if ch["username"] and ch["username"].lower() in seen:
-            continue
-        out.append((ch["id"], ch["title"] or str(ch["id"]), ch["username"]))
+
+    def add(cid, title, username):
+        key = (username or str(cid)).lstrip("@").lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append((cid, title, username))
+
+    if NEWS_CHANNELS:
+        for x in NEWS_CHANNELS:
+            add(x, x, x.lstrip("@") if x.startswith("@") else None)
+    else:
+        if REQUIRED_CHANNEL:
+            add(REQUIRED_CHANNEL, REQUIRED_CHANNEL, REQUIRED_CHANNEL.lstrip("@"))
+        for ch in db.active_chats():
+            if ch["added_by"] in ADMIN_IDS:  # faqat admin o'zi ulagan kanallar
+                add(ch["id"], ch["title"] or str(ch["id"]), ch["username"])
     if meta.fb_enabled():
         out.append(("fb", "📘 Facebook", None))
         out.append(("ig", "📸 Instagram", None))
