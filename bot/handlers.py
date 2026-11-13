@@ -1093,9 +1093,18 @@ async def a_kanallar(m: Message):
 async def a_kanal_qosh(m: Message, bot: Bot, command: CommandObject):
     """O'z kanalingizni yangilik ro'yxatiga qo'shish: /kanal_qosh @username (yoki -100... ID)."""
     arg = (command.args or "").strip().split()[0] if (command.args or "").strip() else ""
+    rep = m.reply_to_message
+    if not arg and rep is not None:  # yopiq kanal: kanaldan forward qilingan postga javob qilib yozilgan
+        origin = getattr(rep, "forward_origin", None)
+        fchat = getattr(origin, "chat", None) or getattr(rep, "forward_from_chat", None)
+        if fchat is not None:
+            arg = str(fchat.id)
     if not arg:
-        return await m.answer("Masalan: <code>/kanal_qosh @Postlar_kanal</code>\n"
-                              "(kanal username'i yoki -100… ID; bot o'sha kanalda admin bo'lishi kerak)")
+        return await m.answer("Ochiq kanal: <code>/kanal_qosh @Postlar_kanal</code>\n\n"
+                              "🔒 Yopiq (private) kanal:\n"
+                              "1) Kanaldagi istalgan postni shu botga <b>forward</b> qiling\n"
+                              "2) O'sha forward qilingan xabarga <b>javob (reply)</b> qilib <code>/kanal_qosh</code> yozing\n\n"
+                              "Bot o'sha kanalda admin bo'lishi kerak.")
     if arg.startswith("https://t.me/") or arg.startswith("t.me/"):
         arg = "@" + arg.rstrip("/").rsplit("/", 1)[-1]
     target = int(arg) if arg.lstrip("-").isdigit() else ("@" + arg.lstrip("@"))
