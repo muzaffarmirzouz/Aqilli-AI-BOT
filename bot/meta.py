@@ -220,6 +220,30 @@ async def set_from_user_token(user_token: str) -> str:
 
 
 # ---------- umumiy chaqiruvlar ----------
+# Instagram «media hali tayyor emas» (9007) va vaqtinchalik xatolar — biroz kutib qayta urinamiz
+_PUBLISH_RETRY = {9007, 1, 2, 4, 17, 32, 613, -2}
+
+
+async def _ig_publish(session, ig: str, base: str, tok: str, cid: str) -> dict:
+    """media_publish: Instagram media'ni tayyorlab ulgurmagan bo'lsa (kod 9007) — 1,5 daqiqagacha qayta urinadi."""
+    waits = (5, 5, 10, 10, 15, 20, 30)
+    for i in range(len(waits) + 1):
+        try:
+            return await _call(session, "POST", f"{ig}/media_publish", base=base, token=tok,
+                               data={"creation_id": cid})
+        except MetaError as e:
+            code = _err_code(e)
+            if code not in _PUBLISH_RETRY or i == len(waits):
+                raise
+            log.info("Instagram media_publish: kod %s — %s s dan keyin qayta", code, waits[i])
+            await asyncio.sleep(waits[i])
+
+
+def _err_code(e) -> int | None:
+    import re
+    m = re.search(r"\(kod (-?\d+)\)", str(e))
+    return int(m.group(1)) if m else None
+
 
 async def _call(session, method: str, path: str, base: str = BASE, token: str = "", **kw):
     kw.setdefault("params", {})["access_token"] = token or _page_token()
@@ -296,8 +320,7 @@ async def post_instagram(image: bytes, caption: str) -> str:
             if st.get("status_code") == "ERROR":
                 raise MetaError("Instagram rasmni qabul qilmadi")
             await asyncio.sleep(3)
-        pub = await _call(s, "POST", f"{ig}/media_publish", base=base, token=tok,
-                          data={"creation_id": cid})
+        pub = await _ig_publish(s, ig, base, tok, cid)
         try:
             info = await _call(s, "GET", pub["id"], base=base, token=tok, params={"fields": "permalink"})
             link = info.get("permalink", "")
@@ -366,7 +389,7 @@ async def post_instagram_reel(video: bytes, caption: str) -> str:
             await asyncio.sleep(3)
         else:
             raise MetaError("Instagram videoni juda uzoq qayta ishlamoqda — birozdan keyin Instagram'ni tekshiring")
-        pub = await _call(s, "POST", f"{ig}/media_publish", base=base, token=tok, data={"creation_id": cid})
+        pub = await _ig_publish(s, ig, base, tok, cid)
         try:
             info = await _call(s, "GET", pub["id"], base=base, token=tok, params={"fields": "permalink"})
             return info.get("permalink") or "https://www.instagram.com/"

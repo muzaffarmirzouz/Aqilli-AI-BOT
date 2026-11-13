@@ -999,6 +999,95 @@ def news_kb(st: dict):
 NEWS_CHANNELS = [x.strip() for x in os.getenv("NEWS_CHANNELS", "").split(",") if x.strip()]
 
 
+def _idset(key: str) -> set[str]:
+    return {x for x in (db.kv_get(key) or "").split(",") if x}
+
+
+def _is_mine(ch) -> bool:
+    """Kanal sizniki hisoblanadimi: /kanallar da qo'shilgan yoki admin ulagan (va olib tashlanmagan)."""
+    cid = str(ch["id"])
+    if cid in _idset("news_own"):
+        return True
+    return ch["added_by"] in ADMIN_IDS and cid not in _idset("news_hide")
+
+
+def _set_mine(cid: str, mine: bool):
+    own, hide = _idset("news_own"), _idset("news_hide")
+    (own.add if mine else own.discard)(cid)
+    (hide.discard if mine else hide.add)(cid)
+    db.kv_set("news_own", ",".join(sorted(own)))
+    db.kv_set("news_hide", ",".join(sorted(hide)))
+
+
+KPAGE = 15
+
+
+def _kanallar_view(page: int = 0):
+    chats = sorted(db.active_chats(), key=lambda c: (c["title"] or "").lower())
+    mine = [c for c in chats if _is_mine(c)]
+    other = [c for c in chats if not _is_mine(c)]
+    pages = max(1, (len(other) + KPAGE - 1) // KPAGE)
+    page = max(0, min(page, pages - 1))
+
+    def label(c):
+        u = f" @{c['username']}" if c["username"] else ""
+        return f"{c['title'] or c['id']}{u}"
+
+    lines = ["📢 <b>Kanallar ro'yxati</b>\n",
+             f"⭐ <b>Mening kanallarim</b> — yangilik/video shularga yuboriladi ({len(mine) + bool(REQUIRED_CHANNEL)}):"]
+    if REQUIRED_CHANNEL:
+        lines.append(f"• {html.escape(REQUIRED_CHANNEL)} (asosiy)")
+    lines += [f"• {html.escape(label(c))}" for c in mine] or (["• —"] if not REQUIRED_CHANNEL else [])
+    lines.append(f"\n👥 <b>Foydalanuvchilar kanallari</b> — faqat kunlik xabarlar boradi ({len(other)}):")
+    chunk = other[page * KPAGE:(page + 1) * KPAGE]
+    lines += [f"• {html.escape(label(c))}" for c in chunk] or ["• —"]
+    if pages > 1:
+        lines.append(f"\n<i>{page + 1}/{pages}-sahifa</i>")
+    if NEWS_CHANNELS:
+        lines.append("\n⚠️ Railway'da NEWS_CHANNELS o'rnatilgan — yuborish ro'yxati o'sha o'zgaruvchidan olinadi.")
+    lines.append("\nTugmani bossangiz: ⭐ — ro'yxatimdan olib tashlash, ➕ — ro'yxatimga qo'shish.")
+
+    kb = InlineKeyboardBuilder()
+    for c in mine:
+        kb.button(text=f"⭐ {label(c)[:40]}", callback_data=f"kown:0:{c['id']}:{page}")
+    for c in chunk:
+        kb.button(text=f"➕ {label(c)[:40]}", callback_data=f"kown:1:{c['id']}:{page}")
+    nav = []
+    if page > 0:
+        kb.button(text="◀️", callback_data=f"kpg:{page - 1}")
+        nav.append(1)
+    if page < pages - 1:
+        kb.button(text="▶️", callback_data=f"kpg:{page + 1}")
+        nav.append(1)
+    kb.adjust(*([1] * (len(mine) + len(chunk))), *([len(nav)] if nav else []))
+    return "\n".join(lines), kb.as_markup()
+
+
+@admin.message(Command("kanallar"))
+async def a_kanallar(m: Message):
+    text, kb = _kanallar_view(0)
+    await m.answer(text, reply_markup=kb, disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("kpg:") | F.data.startswith("kown:"))
+async def a_kanallar_cb(c: CallbackQuery):
+    if c.from_user.id not in ADMIN_IDS:
+        return await c.answer()
+    parts = c.data.split(":")
+    if parts[0] == "kown":
+        _set_mine(parts[2], parts[1] == "1")
+        page = int(parts[3])
+        await c.answer("⭐ Ro'yxatimga qo'shildi" if parts[1] == "1" else "Ro'yxatimdan olib tashlandi")
+    else:
+        page = int(parts[1])
+        await c.answer()
+    text, kb = _kanallar_view(page)
+    try:
+        await c.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+    except Exception:
+        pass
+
+
 def _targets() -> list[tuple]:
     """Yuborish mumkin bo'lgan kanallar: (chat_id, nomi, username) — faqat adminning o'z kanallari."""
     out, seen = [], set()
@@ -1017,7 +1106,7 @@ def _targets() -> list[tuple]:
         if REQUIRED_CHANNEL:
             add(REQUIRED_CHANNEL, REQUIRED_CHANNEL, REQUIRED_CHANNEL.lstrip("@"))
         for ch in db.active_chats():
-            if ch["added_by"] in ADMIN_IDS:  # faqat admin o'zi ulagan kanallar
+            if _is_mine(ch):  # faqat sizning kanallaringiz (/kanallar da belgilanadi)
                 add(ch["id"], ch["title"] or str(ch["id"]), ch["username"])
     if meta.fb_enabled():
         out.append(("fb", "📘 Facebook", None))
@@ -1517,6 +1606,7 @@ async def a_help(m: Message):
         "/kolonka_cookie — QR ishlamasa, cookie bilan ulash (zaxira)\n"
         "/eslatma_stat — namoz vaqtida xabar oluvchilar soni\n"
         "/reklama matn — ob-havo va kurs ostidagi @Aqilli_AI_Bot reklamasini o'zgartirish\n"
+        "/kanallar — kanallar ro'yxati: o'z kanallaringiz (yangilik shularga) va foydalanuvchilar kanallari\n"
         "/kurs_tekshir — kurs manbalari (cbu.uz, nbu.uz) ishlayaptimi\n"
         "/stat yoki /statistika — umumiy statistika (foydalanuvchilar, faollik, xizmatlar, majburiy obuna holati)\n"
         "/sayt — saytdagi yangi maqolalarni kuzatish (on/off)\n"
