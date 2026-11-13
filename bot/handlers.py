@@ -1061,7 +1061,7 @@ def _kanallar_view(page: int = 0):
     if pages > 1:
         lines.append(f"\n<i>{page + 1}/{pages}-sahifa</i>")
     if NEWS_CHANNELS:
-        lines.append("\n⚠️ Railway'da NEWS_CHANNELS o'rnatilgan — yuborish ro'yxati o'sha o'zgaruvchidan olinadi.")
+        lines.append("\nRailway NEWS_CHANNELS: " + html.escape(", ".join(NEWS_CHANNELS)))
     lines.append("\nTugmani bossangiz: ⭐ — ro'yxatimdan olib tashlash, ➕ — ro'yxatimga qo'shish.\n"
                  "Kanal bu yerda yo'q bo'lsa: <code>/kanal_qosh @kanal_username</code>")
 
@@ -1166,17 +1166,15 @@ def _targets() -> list[tuple]:
         seen.add(key)
         out.append((cid, title, username))
 
-    if NEWS_CHANNELS:
-        for x in NEWS_CHANNELS:
-            add(x, x, x.lstrip("@") if x.startswith("@") else None)
-    else:
-        if REQUIRED_CHANNEL:
-            add(REQUIRED_CHANNEL, REQUIRED_CHANNEL, REQUIRED_CHANNEL.lstrip("@"))
-        for ch in db.active_chats():
-            if _is_mine(ch):  # faqat sizning kanallaringiz (/kanallar da belgilanadi)
-                add(ch["id"], ch["title"] or str(ch["id"]), ch["username"])
-        for x in _extras():  # /kanal_qosh bilan qo'shilganlar
-            add(x["id"], x.get("title") or str(x["id"]), x.get("username"))
+    if REQUIRED_CHANNEL:
+        add(REQUIRED_CHANNEL, REQUIRED_CHANNEL, REQUIRED_CHANNEL.lstrip("@"))
+    for x in NEWS_CHANNELS:  # Railway'dagi NEWS_CHANNELS (bo'lsa)
+        add(x, x, x.lstrip("@") if x.startswith("@") else None)
+    for ch in db.active_chats():
+        if _is_mine(ch):  # sizning kanallaringiz (/kanallar da belgilanadi)
+            add(ch["id"], ch["title"] or str(ch["id"]), ch["username"])
+    for x in _extras():  # /kanal_qosh bilan qo'shilganlar (yopiq kanallar ham)
+        add(x["id"], x.get("title") or str(x["id"]), x.get("username"))
     if meta.fb_enabled():
         out.append(("fb", "📘 Facebook", None))
         out.append(("ig", "📸 Instagram", None))
